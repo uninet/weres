@@ -631,6 +631,70 @@ async function testKindle() {
 // 这里的重点不是 CRUD 本身，而是**归属校验**：
 // ArticleTag 表本身不带 userId，一旦漏掉 join 就能往别人文章上打标签。
 // ---------------------------------------------------------------------------
+async function testPasswordReset() {
+  section("M. 密码重置");
+
+  // 未配 SMTP 时应给出可操作的 503，而不是假装发信成功
+  const noSmtp = await api("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email: EMAIL }),
+  });
+
+  if (noSmtp.status === 503) {
+    record(
+      "M-01",
+      "未配置 SMTP 时明确返回 503 而不是假装成功",
+      noSmtp.status === 503 && /SMTP|邮件通道/.test(noSmtp.body.message || ""),
+      `HTTP ${noSmtp.status} ${noSmtp.body.message || ""}`
+    );
+    // 没配邮件通道，后面的重置链路无从验证，到此为止
+    return;
+  }
+
+  record(
+    "M-01",
+    "忘记密码接口已接邮件通道",
+    noSmtp.status === 200 && noSmtp.body.success === true,
+    `HTTP ${noSmtp.status}`
+  );
+
+  // 不存在的邮箱也必须返回成功：否则这个接口成了探测注册情况的工具
+  const unknown = await api("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email: "definitely-not-registered@example.invalid" }),
+  });
+  record(
+    "M-02",
+    "未注册邮箱返回相同结果（不泄漏账号是否存在）",
+    unknown.status === 200 && unknown.body.success === true,
+    `HTTP ${unknown.status}`
+  );
+
+  // 无效 token
+  const badToken = await api("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token: "0".repeat(64), password: "newpass2026" }),
+  });
+  record(
+    "M-03",
+    "无效 token 被拒绝",
+    badToken.status === 400 && /无效|过期/.test(badToken.body.message || ""),
+    `HTTP ${badToken.status}`
+  );
+
+  // 弱密码被拒
+  const weak = await api("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token: "0".repeat(64), password: "123" }),
+  });
+  record(
+    "M-04",
+    "弱密码被拒绝并给出规则",
+    weak.status === 400 && /至少|字母|数字/.test(weak.body.message || ""),
+    `HTTP ${weak.status} ${weak.body.message || ""}`
+  );
+}
+
 async function testTags() {
   section("L. 文章标签");
 
@@ -763,6 +827,7 @@ async function main() {
     await testIdempotent();
     await testKindle();
     await testTags();
+    await testPasswordReset();
   } catch (error) {
     console.error("\n\x1b[31m执行中断：\x1b[0m", error);
     process.exit(1);

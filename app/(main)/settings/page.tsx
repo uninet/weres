@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { KindleSettings } from "@/components/kindle-settings";
+import { usePreferences } from "@/hooks/use-preferences";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -31,23 +32,15 @@ import {
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const [settings, setSettings] = useState({
-    autoMarkRead: true,
-    showUnreadBadge: true,
-    compactView: false,
-    autoSync: true,
-    syncInterval: 30,
-    notifications: true,
-    emailDigest: false,
-  });
+  // 设置项存在 localStorage，阅读器那边用同一个 hook 读，
+  // 拨动开关之后行为立刻改变 —— 之前这里是纯局部 state，
+  // 开关拨了刷新就没了，而且没有任何代码读它。
+  const { preferences: settings, update: updatePreference, toggle: handleToggle } =
+    usePreferences();
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  const handleToggle = (key: keyof typeof settings) => {
-    setSettings(prev => ({ ...prev, [key]: !prev[key] }));
-  };
 
   const handleDarkModeToggle = () => {
     const newTheme = theme === "dark" ? "light" : "dark";
@@ -265,7 +258,20 @@ export default function SettingsPage() {
                   <Label>同步间隔</Label>
                   <p className="text-sm text-gray-500">每 {settings.syncInterval} 分钟检查一次</p>
                 </div>
-                <span className="text-sm text-gray-500">{settings.syncInterval} 分钟</span>
+                <select
+                  className="rounded-md border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-sm disabled:opacity-50"
+                  value={settings.syncInterval}
+                  disabled={!settings.autoSync}
+                  onChange={(event) =>
+                    updatePreference("syncInterval", Number(event.target.value))
+                  }
+                >
+                  {[15, 30, 60, 120, 360].map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {minutes} 分钟
+                    </option>
+                  ))}
+                </select>
               </div>
             </CardContent>
           </Card>

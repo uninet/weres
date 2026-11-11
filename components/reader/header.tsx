@@ -30,6 +30,8 @@ interface HeaderProps {
   readerTheme: ReaderThemeId;
   /** 切换阅读主题（浅色 / 米黄 / 电子墨水 / 深色） */
   onThemeChange: (theme: ReaderThemeId) => void;
+  /** 是否显示未读角标（设置页可关） */
+  showUnreadBadge?: boolean;
 }
 
 export function Header({
@@ -38,6 +40,7 @@ export function Header({
   isDarkMode,
   onNavChange,
   onToggleDarkMode,
+  showUnreadBadge = true,
   readerTheme,
   onThemeChange,
 }: HeaderProps) {
@@ -76,7 +79,7 @@ export function Header({
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>
-                {item.id === "unread" && unreadCount > 0 && (
+                {item.id === "unread" && showUnreadBadge && unreadCount > 0 && (
                   <span className="ml-1 text-xs bg-[#c9a962] text-white px-1.5 py-0.5 rounded-full">
                     {unreadCount}
                   </span>

@@ -20,6 +20,8 @@
 | J | 运维 | 健康检查、重启幂等、容器非 root |
 | K | Kindle 推送 | 状态接口、未配 SMTP 的降级提示、真实投递、越权 404、投递记录 |
 | T | 文章标签 | 创建/幂等、打标签、读回、计数、越权 404、移除 |
+| M | 密码重置 | 未配 SMTP 的 503、不泄漏账号存在性、无效/过期 token、弱密码、完整链路、一次性 |
+| N | 用户偏好设置 | 紧凑视图、未读角标、自动标记已读、持久化、自动同步 |
 
 ## 2. 环境准备
 
@@ -148,6 +150,30 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | J-03 | 非 root | `docker compose exec werss id` 显示 uid=1001 |
 | J-04 | 数据库可连 | 健康检查里 `database:"ok"`，库文件在 `/data/werss.db` |
 
+### M. 密码重置
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| M-01 | 未配 SMTP | 服务端无 SMTP 配置时 `POST /api/auth/forgot-password` | **503**，文案指明缺 SMTP，不假装已发送 |
+| M-02 | 不泄漏账号存在性 | 用未注册邮箱请求重置 | 与已注册邮箱返回**完全相同**的 200 响应 |
+| M-03 | 无效 token | `POST /api/auth/reset-password` 带随机 token | 400「重置链接无效或已过期」 |
+| M-04 | 弱密码 | 新密码 `123` | 400，指出至少 8 位 |
+| M-05 | 完整链路 | 配 SMTP → 申请 → 收信取链接 → 重置 | 200；旧密码登录 401，新密码登录 200 |
+| M-06 | token 一次性 | 同一 token 第二次重置 | 400，不能重放 |
+| M-07 | 缺 token 页面 | 直接访问 `/reset-password` 不带 `?token=` | 提示链接不完整，不渲染密码表单 |
+
+### N. 用户偏好设置
+
+这些开关早前只存在于设置页的局部 state 里，**没有任何代码读取**，拨了等于没拨。以下用例断言的是「拨动之后行为真的变了」。
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| N-01 | 紧凑视图 | 开启后刷新阅读器 | 列表摘要段落数归零，标题仍在 |
+| N-02 | 未读角标 | 关闭 `showUnreadBadge` 后刷新 | 导航栏未读角标不再渲染 |
+| N-03 | 自动标记已读 | 关闭 `autoMarkRead` 后点开文章 | 未读圆点数量不变 |
+| N-04 | 设置持久化 | 拨动开关后刷新页面 | 设置值保持（存 localStorage） |
+| N-05 | 自动同步 | 开启 `autoSync` 并设间隔 | 进入阅读器后按间隔触发同步 |
+
 ## 4. 自动化执行
 
 一条命令跑完 A–J 的全部可自动化用例：
@@ -180,7 +206,7 @@ node scripts/e2e-verify.mjs
 
 ---
 
-## 4. 自动化验收脚本
+## 7. 自动化验收脚本
 
 手工用例适合验收「手感」，但不适合每次改代码都重跑一遍。仓库里带了两套脚本，覆盖上面绝大多数用例：
 
@@ -227,20 +253,38 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 
 ---
 
-## 5. 本轮实测结果（2026-11-12）
+## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：45/45 通过（未配 SMTP）/ 48/48 通过（配了 SMTP）
-npm run verify:ui    → 结果：18/18 通过
+npm run verify:e2e   → 结果：46/46 通过（未配 SMTP）/ 49/49 通过（配了 SMTP）
+npm run verify:ui    → 结果：21/21 通过
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）
 ```
 
 容器状态：`docker compose ps` → `werss` **Up (healthy)**，端口 `0.0.0.0:3000->3000`。
 
+### 密码重置的完整链路验证（2026-11-12）
+
+用本地 SMTP 桩（`smtp-server` 监听 2526）+ 独立容器（端口 3020，`SMTP_HOST=host.docker.internal`）实测：
+
+```
+1. POST /api/auth/forgot-password {"email":"test@example.com"}
+   → 200 {"success":true,"message":"如果该邮箱已注册，重置链接会在一分钟内送达"}
+2. SMTP 桩收到邮件，base64 解码正文后取到链接：
+   http://127.0.0.1:3020/reset-password?token=7cf8fe34...
+3. POST /api/auth/reset-password {"token":"7cf8fe34...","password":"newpass2026"}
+   → 200 {"success":true,"message":"密码已重置，请用新密码登录"}
+4. 同一 token 再提交一次 → 400「重置链接无效或已过期」（一次性生效）
+5. 旧密码 123456 登录 → 401「邮箱或密码错误」
+6. 新密码 newpass2026 登录 → 200
+```
+
+未配 SMTP 的默认容器上：`POST /api/auth/forgot-password` → **503**「服务端未配置邮件通道，无法发送重置邮件」，文案给出替代方案，不假装发送。
+
 ---
 
-## 6. Kindle 推送的实现与验证方式
+## 9. Kindle 推送的实现与验证方式
 
 **实现原理**：Kindle 的 Send-to-Kindle 本质是邮件流程 —— 把文件作为附件发到 `xxx@kindle.com`（国际）或 `xxx@kindle.cn`（中国），Amazon 收到后推送到设备。所以这里只需要一个能发信的 SMTP 账号，**不需要 Amazon API、不需要 OAuth、不需要任何 Key**，与项目「拉下来就能跑」的定位一致。
 

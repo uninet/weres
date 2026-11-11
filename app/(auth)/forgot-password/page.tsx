@@ -13,6 +13,9 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  // 服务端能不能真的发信：决定结果页说的是「去收邮件」还是「找部署者」
+  const [unavailable, setUnavailable] = useState(false);
+  const [serverMessage, setServerMessage] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,13 +28,23 @@ export default function ForgotPasswordPage() {
     setIsLoading(true);
 
     try {
-      // 这里原本是一条模拟调用：await 1.5 秒然后弹「重置链接已发送」。
-      // 但服务端根本没有重置流程，邮件也发不出去 —— 用户按提示去邮箱等，
-      // 永远等不到，还以为是垃圾邮件拦了。与其骗人，不如直接说清楚。
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => null);
 
-      // 不弹「已发送」的红字，而是切到结果页 —— 那里把可行的恢复方式写清楚了。
-      // 一个每次都失败的 toast 只会让用户反复重试。
+      if (!res.ok) {
+        // 503 = 服务端没配邮件通道。这种情况结果页要换成
+        // 「请找部署者」的说明，而不是「去收邮件」。
+        setUnavailable(true);
+        setServerMessage(data?.message || "服务端暂时无法发送邮件");
+        setIsSubmitted(true);
+        return;
+      }
+
+      setUnavailable(false);
       setIsSubmitted(true);
     } catch (error) {
       console.error("找回密码失败:", error);
@@ -67,7 +80,7 @@ export default function ForgotPasswordPage() {
               <CardTitle className="text-xl">忘记密码</CardTitle>
             </div>
             <CardDescription>
-              当前版本未接入重置邮件，请按下方说明操作
+              输入注册邮箱，我们会发一封带重置链接的邮件
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -101,7 +114,7 @@ export default function ForgotPasswordPage() {
                       发送中...
                     </>
                   ) : (
-                    "查看重置方式"
+                    "发送重置链接"
                   )}
                 </Button>
 
@@ -115,30 +128,30 @@ export default function ForgotPasswordPage() {
                   </Link>
                 </div>
               </form>
-            ) : (
+            ) : unavailable ? (
               <div className="text-center py-6">
-                {/* 这里不能用绿色对勾 —— 这不是一次成功，
-                    而是「此路不通，请走另一条」 */}
+                {/* 这不是一次成功，而是「此路不通，请走另一条」：
+                    绿色对勾会让人误以为邮件已经在路上 */}
                 <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Info className="w-8 h-8 text-amber-500" />
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  需要管理员协助
+                  服务端暂时无法发送邮件
                 </h3>
-                <p className="text-gray-500 mb-6">
-                  当前版本没有接入邮件通道，无法自助重置
-                  <strong>{email ? ` ${email} ` : ""}</strong>
-                  的密码。
+                <p className="text-gray-500 mb-6 text-sm">
+                  {serverMessage ||
+                    "这个部署没有配置邮件通道，重置链接发不出去。"}
                 </p>
                 <div className="text-left text-sm text-gray-600 bg-gray-50 rounded-lg p-4 mb-6 space-y-2">
                   <p className="font-medium text-gray-900">你可以这样恢复访问：</p>
                   <p>
-                    1. 如果你是部署者：用 <code className="rounded bg-white px-1">npm run db:studio</code>
-                    打开数据库，或直接注册一个新账号。
+                    1. 如果你是部署者：在 <code className="rounded bg-white px-1">.env</code>
+                    里填好 SMTP_HOST / SMTP_USER / SMTP_PASSWORD 后重启服务，
+                    重置邮件就会走 Kindle 推送那条通道发出去。
                   </p>
                   <p>
-                    2. 如果你只是使用者：联系部署这个站点的人，让他在数据库里
-                    重置你的密码哈希。
+                    2. 如果你只是使用者：联系部署这个站点的人，或在数据库里
+                    直接重置你的密码哈希。
                   </p>
                 </div>
                 <div className="space-y-3">
@@ -153,9 +166,40 @@ export default function ForgotPasswordPage() {
                     </Button>
                   </Link>
                 </div>
-                <p className="text-xs text-gray-400 mt-6">
-                  服务端配置 SMTP 后，密码重置邮件可以直接复用这条通道。
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="w-8 h-8 text-green-500" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  请查收邮件
+                </h3>
+                <p className="text-gray-500 mb-4 text-sm">
+                  如果 <strong>{email}</strong> 已经注册，重置链接会在一分钟内送达。
                 </p>
+                <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+                  没收到？先看垃圾邮件目录。链接 1 小时内有效，只能使用一次。
+                  <br />
+                  出于安全考虑，我们不会告诉你这个邮箱是否已注册。
+                </p>
+                <div className="space-y-3">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setIsSubmitted(false);
+                      setUnavailable(false);
+                    }}
+                  >
+                    换个邮箱重试
+                  </Button>
+                  <Link href="/login">
+                    <Button variant="ghost" className="w-full">
+                      返回登录
+                    </Button>
+                  </Link>
+                </div>
               </div>
             )}
           </CardContent>

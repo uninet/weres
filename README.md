@@ -212,7 +212,7 @@ SMTP_FROM="you@qq.com"
 ```
 .
 ├── app/
-│   ├── (auth)/                # 登录 / 注册 / 忘记密码
+│   ├── (auth)/                # 登录 / 注册 / 忘记密码 / 重置密码
 │   ├── (main)/                # 需登录的主应用（reader / market / subscriptions / ...）
 │   ├── api/                   # API 路由
 │   │   ├── auth/              # 登录、注册、登出、当前用户
@@ -258,6 +258,8 @@ SMTP_FROM="you@qq.com"
 | POST | `/api/auth/login` | 登录（设置 Cookie） |
 | POST | `/api/auth/logout` | 登出（清除 Cookie） |
 | GET | `/api/auth/me` | 当前用户 |
+| POST | `/api/auth/forgot-password` | 发送密码重置邮件（未配 SMTP 时返回 503） |
+| POST | `/api/auth/reset-password` | 用邮件里的 token 设置新密码 |
 | GET | `/api/articles` | 文章列表，支持 `feedId` `groupId` `type` `search` `page` `pageSize` |
 | GET | `/api/articles/:id` | 文章详情（校验订阅归属） |
 | POST/DELETE | `/api/articles/:id/read` | 标记已读 / 未读 |
@@ -321,7 +323,8 @@ npx prisma db seed
 - 同步是手动的，没有定时任务。想自动拉取可以自己加 cron 调 `POST /api/feeds/sync`。
 - 限流是进程内内存实现（`lib/rate-limit.ts`），多实例部署时每个实例各算各的。
   单机自托管够用，集群部署需要换成 Redis 之类的共享存储。
-- 没有密码重置流程。忘记密码页会直接告诉你该怎么恢复（部署者改库 / 注册新号），而不是假装发了邮件。SMTP 通道已具备，接重置邮件是后续小改动。
+- 密码重置邮件依赖 SMTP。没配 SMTP 时「忘记密码」会明确说明发不出去并给出替代方案，不会假装已经发送。
+- 未读通知不会由 RSS 更新自动生成（需要另设定时任务）。
 - Kindle 推送只保证「邮件成功交给 SMTP」；Amazon 侧的最终到达取决于发件域名信誉和白名单，服务端无从验证。
 - 通知只会由接口或种子数据写入，RSS 更新不会自动生成通知。
 - 契约测试（`tests/contract/`）需要先起服务，不在 CI 的默认检查里。

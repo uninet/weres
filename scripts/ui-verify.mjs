@@ -344,6 +344,103 @@ async function main() {
     record("T-11", "阅读器有标签按钮", false, "没找到标签按钮");
   }
 
+
+  // ---- 用户偏好设置真正生效（P 组）----
+  // 这些开关之前在设置页能拨，但没有任何代码读取。
+  // 断言方式：改 localStorage → 刷新 → 看 DOM 是否真的变了。
+
+  const prefKey = "werss:preferences";
+
+  // P-01 紧凑视图：开启后列表里的摘要段落应消失
+  await page.evaluate(
+    (key) => localStorage.setItem(key, JSON.stringify({ compactView: false })),
+    prefKey
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(3500);
+  const descBefore = await page.locator("p.line-clamp-2").count();
+
+  await page.evaluate(
+    (key) => localStorage.setItem(key, JSON.stringify({ compactView: true })),
+    prefKey
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(3500);
+  const descAfter = await page.locator("p.line-clamp-2").count();
+
+  record(
+    "P-01",
+    "紧凑视图开关真实生效（摘要被隐藏）",
+    descBefore > 0 && descAfter === 0,
+    `开前摘要 ${descBefore} 条 → 开后 ${descAfter} 条`
+  );
+
+  // P-02 未读角标：关掉后角标不应再渲染
+  const readBadge = () =>
+    page.evaluate(() => {
+      const el = [...document.querySelectorAll("span")].find((s) =>
+        String(s.className).includes("bg-[#c9a962]")
+      );
+      return el ? el.textContent : null;
+    });
+
+  await page.evaluate(
+    (key) => localStorage.setItem(key, JSON.stringify({ showUnreadBadge: true })),
+    prefKey
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(3500);
+  const badgeOn = await readBadge();
+
+  await page.evaluate(
+    (key) => localStorage.setItem(key, JSON.stringify({ showUnreadBadge: false })),
+    prefKey
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(3500);
+  const badgeOff = await readBadge();
+
+  record(
+    "P-02",
+    "未读角标开关真实生效",
+    badgeOn !== null && badgeOff === null,
+    `开=${badgeOn} 关=${badgeOff}`
+  );
+
+  // P-03 自动标记已读：关掉后点开文章，未读圆点数量不应减少
+  await page.evaluate(
+    (key) =>
+      localStorage.setItem(
+        key,
+        JSON.stringify({ autoMarkRead: false, showUnreadBadge: true, compactView: false })
+      ),
+    prefKey
+  );
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(3500);
+
+  const unreadDots = () =>
+    page.evaluate(
+      () => document.querySelectorAll('span.w-2.h-2.rounded-full.bg-\\[\\#007AFF\\]').length
+    );
+  const dotsBefore = await unreadDots();
+  const titles = page.locator("h3");
+  if ((await titles.count()) > 1) {
+    await titles.nth(1).click();
+    await page.waitForTimeout(2500);
+  }
+  const dotsAfter = await unreadDots();
+
+  record(
+    "P-03",
+    "关闭自动已读后点开文章不改变未读状态",
+    dotsBefore > 0 && dotsAfter === dotsBefore,
+    `点击前 ${dotsBefore} → 点击后 ${dotsAfter}`
+  );
+
+  // 恢复默认，避免影响下次运行
+  await page.evaluate((key) => localStorage.removeItem(key), prefKey);
+
   await browser.close();
 
   const passed = results.filter((r) => r.ok).length;

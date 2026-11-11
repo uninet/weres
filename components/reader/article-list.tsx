@@ -63,6 +63,8 @@ interface ArticleListProps {
   sortOrder: "newest" | "oldest";
   /** 切换排序 */
   onToggleSort: () => void;
+  /** 紧凑模式：隐藏摘要与缩略图，同样高度能看到更多条目 */
+  compactView?: boolean;
 }
 
 export function ArticleList({
@@ -78,6 +80,7 @@ export function ArticleList({
   onToggleCollapse,
   sortOrder,
   onToggleSort,
+  compactView = false,
 }: ArticleListProps) {
   return (
     <div
@@ -204,12 +207,14 @@ export function ArticleList({
                       {article.title}
                     </h3>
 
-                    <p className="text-[13px] text-[#888] dark:text-[#666] line-clamp-2 leading-relaxed">
-                      {article.description}
-                    </p>
+                    {!compactView && (
+                      <p className="text-[13px] text-[#888] dark:text-[#666] line-clamp-2 leading-relaxed">
+                        {article.description}
+                      </p>
+                    )}
                   </div>
 
-                  {article.imageUrl ? (
+                  {!compactView && article.imageUrl ? (
                     <Thumbnail src={article.imageUrl} />
                   ) : null}
                 </div>

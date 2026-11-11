@@ -12,6 +12,7 @@ import { ShortcutHelp } from "@/components/reader/shortcut-help";
 import { useReaderShortcuts } from "@/hooks/use-reader-shortcuts";
 import { useKindlePush } from "@/hooks/use-kindle-push";
 import { useTags } from "@/hooks/use-tags";
+import { usePreferences } from "@/hooks/use-preferences";
 import { useReaderTheme } from "@/hooks/use-reader-theme";
 import { useFeedViewSettings } from "@/hooks/use-feed-view-settings";
 import { toast } from "sonner";
@@ -105,6 +106,7 @@ export default function ReaderPage() {
     sortOrder,
   });
   const { groups, refreshingFeeds, refreshFeed, refreshAllFeeds } = useFeeds();
+  const { preferences } = usePreferences();
   const {
     enabled: kindleEnabled,
     pushing: kindlePushing,
@@ -145,8 +147,10 @@ export default function ReaderPage() {
       setArticleLoading(true);
       setSelectedArticle(article);
 
-      // 标记为已读
-      if (!article.isRead) {
+      // 标记为已读 —— 只在用户开启了「自动标记已读」时。
+      // 关掉这个开关的人通常是「只想先扫标题、不想污染未读状态」，
+      // 之前代码无条件标记，等于这个开关根本没接。
+      if (!article.isRead && preferences.autoMarkRead) {
         await markArticleAsRead(article.id);
       }
 
@@ -165,7 +169,7 @@ export default function ReaderPage() {
 
       setArticleLoading(false);
     },
-    [markArticleAsRead]
+    [markArticleAsRead, preferences.autoMarkRead]
   );
 
   // 获取当前文章索引
@@ -197,6 +201,38 @@ export default function ReaderPage() {
       await markArticleAsRead(article.id);
     }
   }, [articles, markArticleAsRead]);
+
+  // 自动同步：进入阅读器时以及按设定间隔后台刷新
+  //
+  // 之前「自动同步」和「同步间隔」两个开关在设置页里能拨，
+  // 但全项目没有一处代码读取它们 —— 拨到 15 分钟和关掉没区别。
+  // 这里用挂载时的首次同步 + setInterval 实现，刷新失败静默
+  // （后台任务失败不该打断正在读文章的人，下拉手动刷新时才会报错）。
+  useEffect(() => {
+    if (isGuest || !preferences.autoSync) return;
+
+    let cancelled = false;
+    const runSync = async () => {
+      if (cancelled) return;
+      try {
+        await refreshAllFeeds();
+        if (!cancelled) await fetchArticles();
+      } catch (error) {
+        console.error("自动同步失败:", error);
+      }
+    };
+
+    void runSync();
+
+    // 下限 5 分钟：再短就变成对源站的骚扰了
+    const intervalMs = Math.max(5, preferences.syncInterval) * 60 * 1000;
+    const timer = window.setInterval(runSync, intervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isGuest, preferences.autoSync, preferences.syncInterval, refreshAllFeeds, fetchArticles]);
 
   // 刷新订阅源
   const handleRefresh = useCallback(async () => {
@@ -336,6 +372,7 @@ export default function ReaderPage() {
               onToggleDarkMode={toggleDarkMode}
               readerTheme={readerTheme}
               onThemeChange={setReaderTheme}
+              showUnreadBadge={preferences.showUnreadBadge}
             />
           )}
 
@@ -373,6 +410,7 @@ export default function ReaderPage() {
                 onToggleSort={() =>
                   setSortOrder((v) => (v === "newest" ? "oldest" : "newest"))
                 }
+                compactView={preferences.compactView}
               />
             )}
 

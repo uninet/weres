@@ -57,7 +57,7 @@ export function isKindlePushEnabled(): boolean {
   return getSmtpConfig() !== null;
 }
 
-function getTransporter(config: SmtpConfig): Transporter {
+export function getTransporter(config: SmtpConfig): Transporter {
   // 配置没变就复用连接池，避免每封邮件都重新握手。
   const signature = `${config.host}:${config.port}:${config.secure}:${config.user}`;
   if (cachedTransporter && cachedSignature === signature) {
