@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Feed Schema",
+  "description": "Schema for RSS feed subscription objects",
+  "type": "object",
+  "required": ["id", "title", "url"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique feed identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Feed title"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "RSS feed URL"
+    },
+    "description": {
+      "type": "string",
+      "description": "Feed description"
+    },
+    "icon": {
+      "type": "string",
+      "format": "uri",
+      "description": "Feed icon URL"
+    },
+    "lastSyncAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Last synchronization timestamp"
+    },
+    "unreadCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of unread articles"
+    },
+    "groupId": {
+      "type": ["string", "null"],
+      "description": "Group ID if feed is grouped"
+    }
+  },
+  "additionalProperties": false
+}

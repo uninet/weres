@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Group Schema",
+  "description": "Schema for feed grouping objects",
+  "type": "object",
+  "required": ["id", "name", "createdAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique group identifier"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Group display name"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Group description"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Group creation timestamp"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp"
+    },
+    "feeds": {
+      "type": "array",
+      "description": "Feeds in this group",
+      "items": {
+        "$ref": "feed.schema.json"
+      }
+    }
+  },
+  "additionalProperties": false
+}

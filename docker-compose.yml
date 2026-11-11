@@ -1,0 +1,52 @@
+services:
+  werss:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: werss:latest
+    container_name: werss
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      # ---------------------------------------------------------------------
+      # 必需：JWT 签名密钥
+      #
+      # 首次启动前必须生成一个：
+      #   echo "JWT_SECRET=$(openssl rand -base64 32)" > .env
+      #
+      # docker compose 会自动读取同目录下的 .env 文件（该文件已在
+      # .gitignore / .dockerignore 里排除，不会进镜像也不会进仓库）。
+      #
+      # 不设置或过短会直接启动失败（这是有意的：带着弱密钥运行
+      # 等于任何人都能伪造登录）。
+      # ---------------------------------------------------------------------
+      JWT_SECRET: "${JWT_SECRET:?必须设置 JWT_SECRET，生成方式：openssl rand -base64 32}"
+      NEXTAUTH_SECRET: "${JWT_SECRET}"
+      NEXTAUTH_URL: "${NEXTAUTH_URL:-http://localhost:3000}"
+
+      DATABASE_URL: "file:/data/werss.db"
+      NODE_ENV: "production"
+
+      # 访客/演示模式：生产环境建议保持 false
+      ALLOW_GUEST_MODE: "${ALLOW_GUEST_MODE:-false}"
+
+      # 首次启动且库为空时自动写入演示数据（测试账号 + 示例 RSS 源）
+      SEED_ON_FIRST_BOOT: "${SEED_ON_FIRST_BOOT:-true}"
+    volumes:
+      # SQLite 数据库落在宿主机的具名卷里，容器重建不丢数据
+      - werss-data:/data
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  werss-data:
+    driver: local

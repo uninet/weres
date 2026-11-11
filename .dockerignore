@@ -1,0 +1,62 @@
+# ============================================================================
+# .dockerignore
+# ----------------------------------------------------------------------------
+# 构建上下文越小，docker build 越快，也越不容易把本地私密文件带进镜像。
+# ============================================================================
+
+# 依赖与构建产物（镜像内会重新安装/编译）
+node_modules
+.next
+out
+build
+dist
+*.tsbuildinfo
+next-env.d.ts
+
+# 本地数据库与迁移运行态
+prisma/dev.db
+prisma/*.db
+prisma/*.db-journal
+prisma/prisma
+
+# 环境变量与密钥（绝不进镜像）
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+cookies*.txt
+
+# 测试与产物
+coverage
+test-results
+playwright-report
+blob-report
+tests/e2e/screenshots
+.travis.yml
+
+# 版本控制与编辑器
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# 文档与规格（不影响运行）
+README.md
+QWEN.md
+agents.md
+AGENTS.md
+specs
+design-system
+web版RSS阅读平台需求文档.md
+fix-opencode-config.sh
+
+# Docker 自身
+Dockerfile
+.dockerignore
+docker-compose.yml

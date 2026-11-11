@@ -1,0 +1,32 @@
+name: Deploy
+
+# ---------------------------------------------------------------------------
+# 部署是手动的，不挂在 push 上。
+#
+# 原因：这个工作流依赖 Vercel 账号下的三个 secret（VERCEL_TOKEN /
+# VERCEL_ORG_ID / VERCEL_PROJECT_ID）。如果像以前那样挂在 push 上，
+# 任何 fork 或没配 secret 的仓库每次提交都会让整条流水线变红 ——
+# 而失败的其实是「没账号」，不是「代码有问题」。
+#
+# 另外要注意：本项目数据库用的是 SQLite 单文件。Vercel 的函数实例
+# 文件系统不持久，数据会在冷启动后丢失。真要在 Vercel 上跑，需要先把
+# datasource 换成 PostgreSQL（见 .env.example 里的切换说明）。
+# 自托管请用仓库里的 Dockerfile / docker-compose.yml。
+# ---------------------------------------------------------------------------
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"

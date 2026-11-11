@@ -1,0 +1,574 @@
+/* Article Content Styles - Magazine Edition */
+
+/* Base Typography - Using CSS Variables */
+.article-content {
+  font-family: var(--article-font-family, 'Noto Serif SC', 'Source Han Serif SC', 'SimSun', serif);
+  font-size: var(--article-font-size, 17px);
+  line-height: var(--article-line-height, 1.8);
+  color: #2a2a2a;
+}
+
+.dark .article-content {
+  color: #d0d0d0;
+}
+
+/* Paragraph Styles */
+.article-content p {
+  margin-bottom: 1.5em;
+  text-align: justify;
+  line-height: var(--article-line-height, 1.8);
+  font-size: var(--article-font-size, 17px);
+}
+
+/* Headings */
+.article-content h2 {
+  font-family: var(--article-font-family, 'Noto Serif SC', serif);
+  font-size: calc(var(--article-font-size, 17px) * 1.5);
+  font-weight: 700;
+  margin-top: 2.5rem;
+  margin-bottom: 1.25rem;
+  color: #1a1a1a;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e8e4df;
+  line-height: 1.4;
+}
+
+.dark .article-content h2 {
+  color: #f8f6f3;
+  border-bottom-color: #333;
+}
+
+.article-content h3 {
+  font-family: var(--article-font-family, 'Noto Serif SC', serif);
+  font-size: calc(var(--article-font-size, 17px) * 1.25);
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  color: #2a2a2a;
+  line-height: 1.4;
+}
+
+.dark .article-content h3 {
+  color: #e8e4df;
+}
+
+.article-content h4 {
+  font-family: var(--article-font-family, 'Noto Serif SC', serif);
+  font-size: calc(var(--article-font-size, 17px) * 1.1);
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #3a3a3a;
+  line-height: 1.4;
+}
+
+.dark .article-content h4 {
+  color: #c0c0c0;
+}
+
+/* Lists */
+.article-content ul,
+.article-content ol {
+  margin: 1.5rem 0;
+  padding-left: 2rem;
+  font-size: var(--article-font-size, 17px);
+}
+
+.article-content ul {
+  list-style-type: none;
+}
+
+.article-content ul li {
+  position: relative;
+  margin-bottom: 0.75rem;
+  line-height: var(--article-line-height, 1.8);
+  font-size: var(--article-font-size, 17px);
+}
+
+.article-content ul li::before {
+  content: '•';
+  position: absolute;
+  left: -1.25rem;
+  color: #c9a962;
+  font-weight: bold;
+}
+
+.article-content ol {
+  list-style-type: decimal;
+}
+
+.article-content ol li {
+  margin-bottom: 0.75rem;
+  line-height: var(--article-line-height, 1.8);
+  font-size: var(--article-font-size, 17px);
+}
+
+.article-content li > ul,
+.article-content li > ol {
+  margin-top: 0.5rem;
+}
+
+/* Blockquotes */
+.article-content blockquote {
+  position: relative;
+  margin: 2rem 0;
+  padding: 1.5rem 2rem;
+  background: linear-gradient(to right, #f8f6f3, transparent);
+  border-left: 4px solid #c9a962;
+  border-radius: 0 0.75rem 0.75rem 0;
+  font-style: italic;
+}
+
+.dark .article-content blockquote {
+  background: linear-gradient(to right, #1a1a1a, transparent);
+}
+
+.article-content blockquote p {
+  margin-bottom: 0;
+  color: #5a5a5a;
+  font-size: calc(var(--article-font-size, 17px) * 1.05);
+  line-height: var(--article-line-height, 1.8);
+}
+
+.dark .article-content blockquote p {
+  color: #a0a0a0;
+}
+
+.article-content blockquote p::before {
+  content: '"';
+  font-size: 2rem;
+  color: #c9a962;
+  margin-right: 0.25rem;
+  line-height: 1;
+  vertical-align: text-top;
+}
+
+.article-content blockquote p::after {
+  content: '"';
+  font-size: 2rem;
+  color: #c9a962;
+  margin-left: 0.25rem;
+  line-height: 1;
+  vertical-align: text-bottom;
+}
+
+.article-content blockquote cite {
+  display: block;
+  margin-top: 1rem;
+  font-size: calc(var(--article-font-size, 17px) * 0.875);
+  color: #9b9b9b;
+  font-style: normal;
+}
+
+.article-content blockquote cite::before {
+  content: '— ';
+}
+
+/* Code Blocks */
+.article-content pre {
+  background: #f8f6f3;
+  border: 1px solid #e8e4df;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  font-size: calc(var(--article-font-size, 17px) * 0.85);
+  line-height: 1.6;
+}
+
+.dark .article-content pre {
+  background: #1a1a1a;
+  border-color: #333;
+}
+
+.article-content pre code {
+  background: transparent;
+  padding: 0;
+  color: #2a2a2a;
+}
+
+.dark .article-content pre code {
+  color: #d0d0d0;
+}
+
+.article-content code {
+  background: #f0ede8;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+  font-size: 0.875em;
+  color: #c9a962;
+}
+
+.dark .article-content code {
+  background: #2a2a2a;
+}
+
+/* Images */
+.article-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  box-shadow: none;
+  margin: 2rem auto;
+  display: block;
+}
+
+.article-content figure {
+  margin: 2rem 0;
+}
+
+.article-content figcaption {
+  text-align: center;
+  font-size: calc(var(--article-font-size, 17px) * 0.875);
+  color: #9b9b9b;
+  margin-top: 0.75rem;
+  font-style: italic;
+}
+
+/* Links */
+.article-content a {
+  color: #c9a962;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.article-content a:hover {
+  border-bottom-color: #c9a962;
+}
+
+/* Tables */
+.article-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2rem 0;
+  font-size: var(--article-font-size, 17px);
+  overflow-x: auto;
+  display: block;
+}
+
+.article-content thead {
+  border-bottom: 2px solid #1a1a1a;
+}
+
+.dark .article-content thead {
+  border-bottom-color: #f8f6f3;
+}
+
+.article-content th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #1a1a1a;
+  font-size: var(--article-font-size, 17px);
+}
+
+.dark .article-content th {
+  color: #f8f6f3;
+}
+
+.article-content td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e8e4df;
+  color: #2a2a2a;
+  font-size: var(--article-font-size, 17px);
+  line-height: var(--article-line-height, 1.8);
+}
+
+.dark .article-content td {
+  border-bottom-color: #333;
+  color: #d0d0d0;
+}
+
+.article-content tbody tr:hover {
+  background: #f8f6f3;
+}
+
+.dark .article-content tbody tr:hover {
+  background: #1a1a1a;
+}
+
+/* Horizontal Rule */
+.article-content hr {
+  margin: 3rem 0;
+  border: none;
+  height: 1px;
+  background: linear-gradient(to right, transparent, #c9a962, transparent);
+}
+
+/* Emphasis */
+.article-content strong {
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.dark .article-content strong {
+  color: #f8f6f3;
+}
+
+.article-content em {
+  font-style: italic;
+  color: #4a4a4a;
+}
+
+.dark .article-content em {
+  color: #b0b0b0;
+}
+
+/* Info Boxes */
+.article-content .info-box,
+.article-content .warning-box,
+.article-content .tip-box {
+  margin: 1.5rem 0;
+  padding: 1.25rem 1.5rem;
+  border-radius: 0 0.75rem 0.75rem 0;
+  border-left: 4px solid;
+  font-size: var(--article-font-size, 17px);
+  line-height: var(--article-line-height, 1.8);
+}
+
+.article-content .info-box {
+  background: #eff6ff;
+  border-left-color: #3b82f6;
+}
+
+.dark .article-content .info-box {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.article-content .warning-box {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+}
+
+.dark .article-content .warning-box {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.article-content .tip-box {
+  background: #f0fdf4;
+  border-left-color: #22c55e;
+}
+
+.dark .article-content .tip-box {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+/* Mermaid Diagrams */
+.article-content .mermaid {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: #f8f6f3;
+  border-radius: 0.75rem;
+  text-align: center;
+}
+
+.dark .article-content .mermaid {
+  background: #1a1a1a;
+}
+
+/* Definition Lists */
+.article-content dl {
+  margin: 1.5rem 0;
+  font-size: var(--article-font-size, 17px);
+}
+
+.article-content dt {
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-top: 1rem;
+  font-size: var(--article-font-size, 17px);
+}
+
+.dark .article-content dt {
+  color: #f8f6f3;
+}
+
+.article-content dd {
+  margin-left: 1.5rem;
+  margin-top: 0.25rem;
+  color: #4a4a4a;
+  font-size: var(--article-font-size, 17px);
+  line-height: var(--article-line-height, 1.8);
+}
+
+.dark .article-content dd {
+  color: #b0b0b0;
+}
+
+/* Subscript and Superscript */
+.article-content sub,
+.article-content sup {
+  font-size: 0.75em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+.article-content sup {
+  top: -0.5em;
+}
+
+.article-content sub {
+  bottom: -0.25em;
+}
+
+/* Mark/Highlight */
+.article-content mark {
+  background: #fef3c7;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.125rem;
+}
+
+.dark .article-content mark {
+  background: rgba(254, 243, 199, 0.3);
+}
+
+/* Keyboard */
+.article-content kbd {
+  background: #f0ede8;
+  border: 1px solid #d8d4cf;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-family: 'SF Mono', monospace;
+  font-size: 0.875em;
+  box-shadow: 0 1px 0 #d8d4cf;
+}
+
+.dark .article-content kbd {
+  background: #2a2a2a;
+  border-color: #444;
+  box-shadow: 0 1px 0 #444;
+}
+
+/* Abbreviation */
+.article-content abbr {
+  border-bottom: 1px dotted #9b9b9b;
+  cursor: help;
+}
+
+/* Small Text */
+.article-content small {
+  font-size: 0.875em;
+  color: #9b9b9b;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .article-content h2 {
+    font-size: calc(var(--article-font-size, 17px) * 1.3);
+  }
+  
+  .article-content h3 {
+    font-size: calc(var(--article-font-size, 17px) * 1.15);
+  }
+  
+  .article-content blockquote {
+    padding: 1rem 1.25rem;
+  }
+  
+  .article-content table {
+    font-size: var(--article-font-size, 17px);
+  }
+}
+
+/* ==========================================================================
+   阅读主题（浅色 / 米黄 / 电子墨水 / 深色）
+   --------------------------------------------------------------------------
+   通过 <html data-reader-theme="..."> 切换。只覆盖颜色相关的少量变量，
+   不重写排版规则 —— 字号、行高、页宽由 JS 内联的 CSS 变量控制，
+   两套机制互不干扰。
+
+   为什么要有「米黄」和「电子墨水」两档：
+     - 米黄（sepia）：长时间阅读时暖色底比纯白底舒服，是阅读类产品的经典做法；
+     - 电子墨水（eink）：面向 Kindle / 文石 / 掌阅等墨水屏浏览器，
+       低对比度、无纯黑纯白，避免墨水屏整屏刷新时闪得厉害。
+   ========================================================================== */
+
+:root {
+  --reader-bg: #f8f6f3;
+  --reader-fg: #1a1a1a;
+  --reader-fg-muted: #666666;
+  --reader-link: #007aff;
+  --reader-border: #e0e0e0;
+  --reader-code-bg: #f0f0f0;
+}
+
+html[data-reader-theme="sepia"] {
+  --reader-bg: #f4ecd8;
+  --reader-fg: #433422;
+  --reader-fg-muted: #7a6851;
+  --reader-link: #9c6b2f;
+  --reader-border: #ddd0b8;
+  --reader-code-bg: #e9dfc6;
+}
+
+html[data-reader-theme="eink"] {
+  --reader-bg: #e8e6e1;
+  --reader-fg: #2b2b2b;
+  --reader-fg-muted: #5a5a5a;
+  --reader-link: #333333;
+  --reader-border: #cfcdc8;
+  --reader-code-bg: #dedcd7;
+}
+
+html[data-reader-theme="dark"] {
+  --reader-bg: #1a1a1a;
+  --reader-fg: #e0e0e0;
+  --reader-fg-muted: #999999;
+  --reader-link: #0a84ff;
+  --reader-border: #2a2a2a;
+  --reader-code-bg: #2a2a2a;
+}
+
+/* 米黄与电子墨水两档要盖掉 Tailwind 的暗色类，否则正文仍按浅色渲染 */
+html[data-reader-theme="sepia"] .article-content,
+html[data-reader-theme="eink"] .article-content {
+  color: var(--reader-fg);
+}
+
+html[data-reader-theme="sepia"] .article-content a,
+html[data-reader-theme="eink"] .article-content a {
+  color: var(--reader-link);
+}
+
+html[data-reader-theme="sepia"] .article-content code,
+html[data-reader-theme="sepia"] .article-content pre,
+html[data-reader-theme="eink"] .article-content code,
+html[data-reader-theme="eink"] .article-content pre {
+  background-color: var(--reader-code-bg);
+  color: var(--reader-fg);
+}
+
+html[data-reader-theme="sepia"] .article-content blockquote,
+html[data-reader-theme="eink"] .article-content blockquote {
+  border-left-color: var(--reader-border);
+  color: var(--reader-fg-muted);
+}
+
+/* 电子墨水主题：去掉一切阴影与渐变，墨水屏上这些只会拖慢刷新 */
+html[data-reader-theme="eink"] .article-content img {
+  box-shadow: none;
+  filter: grayscale(15%);
+}
+
+/* 阅读器外层背景也要跟随主题。
+   之前只改了 --reader-bg 变量，但 .article-content 的父容器用的是
+   Tailwind 里写死的 bg-[#fafafa] / dark:bg-[#0d0d0d]，
+   导致选「电子墨水」时只有正文区块变色、两侧仍是白底，看起来很割裂。 */
+html[data-reader-theme] body {
+  background-color: var(--reader-bg);
+}
+
+html[data-reader-theme="sepia"] .reader-surface,
+html[data-reader-theme="eink"] .reader-surface {
+  background-color: var(--reader-bg) !important;
+  color: var(--reader-fg);
+}
+
+html[data-reader-theme="sepia"] .reader-surface .text-\[\#fafafa\],
+html[data-reader-theme="eink"] .reader-surface .text-\[\#fafafa\] {
+  background-color: var(--reader-bg) !important;
+}

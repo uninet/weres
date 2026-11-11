@@ -1,0 +1,70 @@
+# ---------- 依赖 ----------
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/versions
+
+# ---------- 构建产物 ----------
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+# Docker 构建阶段用 esbuild 预打包的 seed 脚本，属产物不入库
+scripts/seed.bundle.cjs
+
+# ---------- 环境变量 / 密钥（绝不能提交） ----------
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+cookies.txt
+cookies*.txt
+
+# ---------- 数据库（含真实用户数据，绝不提交） ----------
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/dev.db
+prisma/prisma/
+prisma/migrations/dev.db*
+
+# ---------- 测试与覆盖率产物 ----------
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.nyc_output/
+# e2e 运行时用 page.screenshot() 写出的图片，每次跑测试都会覆盖，
+# 提交进仓库只会让 diff 里堆二进制噪音
+tests/e2e/screenshots/
+
+# ---------- 日志 ----------
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- 系统 / 编辑器 ----------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# ---------- 本地 AI 工具缓存（视团队约定可保留） ----------
+.claude/settings.local.json

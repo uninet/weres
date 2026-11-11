@@ -1,0 +1,289 @@
+# WeRSS 测试计划与测试用例
+
+> 目标：证明本项目在本机 Docker 环境内可以完整跑通，覆盖订阅管理、阅读器交互、快捷键、全文抓取、数据导入导出、鉴权与安全。
+>
+> 全部用例都在 `docker compose up -d` 起的真实容器里执行，不接受「代码读起来是对的」作为通过标准。
+
+## 1. 测试范围
+
+| 编号 | 范围 | 说明 |
+|------|------|------|
+| A | 订阅管理 | 订阅、取消订阅、重复订阅、无效源、订阅后出现在左栏、分组增删改与越权 |
+| B | 阅读器交互 | 三栏布局、文章切换、已读/未读、收藏（含图标状态与 toast）、滚动即已读 |
+| C | 键盘快捷键 | m/n/j/k/o/s/v/t/f/r/,/?/Esc 全量键位 |
+| D | 内容质量 | 全文抓取、缩略图、摘要无 HTML 标签、正文无面包屑 |
+| E | 排序与筛选 | 最新/最旧排序、未读筛选、收藏筛选、搜索 |
+| F | 数据导入导出 | OPML 导出、OPML 导入 |
+| G | 阅读主题 | 浅色/米黄/电子墨水/深色四档 |
+| H | 文本转语音 | 支持检测、播放/停止 |
+| I | 鉴权与安全 | 未登录 401、越权隔离、XSS 净化、密钥校验 |
+| J | 运维 | 健康检查、重启幂等、容器非 root |
+| K | Kindle 推送 | 状态接口、未配 SMTP 的降级提示、真实投递、越权 404、投递记录 |
+| T | 文章标签 | 创建/幂等、打标签、读回、计数、越权 404、移除 |
+
+## 2. 环境准备
+
+```bash
+cd /Users/yelon/Documents/Projects/00-Active/web/werss3
+
+# 1) 必须有 JWT_SECRET 且长度 ≥32
+grep -q '^JWT_SECRET=.\{32,\}' .env || echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env
+
+# 2) 构建并启动
+docker compose up -d --build
+
+# 3) 等待健康
+until curl -sf http://127.0.0.1:3000/api/health >/dev/null; do sleep 2; done
+
+# 4) 登录拿 cookie（后续所有需要身份的用例都用它）
+curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com","password":"123456"}'
+```
+
+演示账号来自 `npm run db:seed`，容器首次启动会自动执行。若数据库非空则跳过 seed，此时用自己注册的账号。
+
+## 3. 用例
+
+### A. 订阅管理
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| A-01 | 从市场页订阅 | 打开 `/market`，点任意未订阅卡片的「订阅」 | 顶部出现「订阅成功」toast；按钮变「已订阅」；`POST /api/feeds/subscriptions` 返回 200 |
+| A-02 | 订阅后出现在左栏 | 订阅后进入 `/reader` | 左侧栏出现该源，且位于某个分组下（不能隐身） |
+| A-03 | 取消订阅 | 在 `/subscriptions` 点对应源的取消订阅 | 出现「取消订阅成功」；列表移除；左栏同步消失 |
+| A-04 | 重复订阅 | 对已订阅的源再调一次 `POST /api/feeds/subscriptions` | 返回 200 且 `message` 含「已经订阅过」；不产生重复记录、不报 500 |
+| A-05 | 无效源 | 自定义 tab 输入 `https://example.com/not-a-feed` | 明确报错「无效的 RSS 链接」或「订阅失败：…」，不能静默 |
+| A-06 | UA 内容协商的源 | 订阅 `https://www.gcores.com/rss` | 订阅成功（该站对浏览器 UA 返回 HTML，必须走朴素 UA 重试） |
+
+### B. 阅读器交互
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| B-01 | 三栏布局 | 打开 `/reader` | 左栏源列表、中栏文章列表、右栏正文同时可见 |
+| B-02 | 切文章 | 点击中栏任意一条 | 右栏切换为该文章，标题一致 |
+| B-03 | 自动已读 | 点击未读文章 | 该文章未读蓝点消失，变已读状态 |
+| B-04 | 收藏 | 点右栏「收藏文章」 | toast「已收藏」；再次点击「已取消收藏」 |
+| B-05 | 滚动即已读 | 打开一篇长文，把正文滚到底 | 中栏该条从「未读」变「已读」 |
+
+### C. 键盘快捷键
+
+| ID | 按键 | 期望 |
+|----|------|------|
+| C-01 | `n` | 切到下一篇 |
+| C-02 | `m` | 切回上一篇 |
+| C-03 | `j` / `k` | 与 n / m 等效（Vim 习惯） |
+| C-04 | `Space` | 下一篇 |
+| C-05 | `o` | 新标签打开原文 |
+| C-06 | `s` | 收藏/取消收藏，有 toast |
+| C-07 | `v` | 已读 ↔ 未读切换 |
+| C-08 | `t` | 主题在四档间循环/切换 |
+| C-09 | `f` | 进入沉浸模式（左右两栏隐藏） |
+| C-10 | `,` | 打开阅读设置面板 |
+| C-11 | `?` | 弹出快捷键帮助面板 |
+| C-12 | `Esc` | 退出沉浸 / 关闭面板 |
+| C-13 | 在搜索框内按 `m` | **不**切换文章（只输入 m） |
+| C-14 | `Cmd/Ctrl + R` | 交给浏览器，不拦截 |
+
+### D. 内容质量
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| D-01 | 全文抓取 | 订阅少数派，同步后看正文长度 | 正文 > 10000 字符（RSS 只给摘要，需回源抓全文） |
+| D-02 | 缩略图 | 查看中栏列表 | 有图源的条目显示缩略图；加载失败时退化为纯文字，不显示灰块 |
+| D-03 | 摘要无 HTML | 订阅 IT之家后看列表摘要 | 摘要为纯文本，不出现 `<p data-vmark=...>` |
+| D-04 | 正文无面包屑 | 打开 IT之家文章 | 正文不含「首页 > IT资讯 > 业界」这类导航 |
+| D-05 | 无乱码 | 检查正文 | 不含 U+FFFD（`�`）替换字符 |
+
+### E. 排序与筛选
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| E-01 | 最新在前 | 默认打开 `/reader` | 第一条是最新发布 |
+| E-02 | 从旧到新 | 点中栏排序按钮 | 顺序反转，第一条变成最早的 |
+| E-03 | 未读筛选 | 顶部切到「未读」 | 只显示未读文章 |
+| E-04 | 收藏筛选 | 切到「稍后阅读」 | 只显示已收藏 |
+| E-05 | 搜索 | 搜索框输入关键词 | 只显示标题/摘要命中该词的文章 |
+| E-06 | 分页上界 | `GET /api/articles?pageSize=999999` | `pageSize` 被夹到 100，不返回全表 |
+
+### F. 数据导入导出
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| F-01 | 导出 OPML | 设置页点「导出」 | 下载 `.opml` 文件，内容是合法 OPML 2.0，含全部订阅 |
+| F-02 | 导入 OPML | 设置页点「导入」，选一个 OPML | toast 显示成功条数；订阅出现在左栏「导入」分组 |
+
+### G. 阅读主题
+
+| ID | 用例 | 期望 |
+|----|------|------|
+| G-01 | 四档可切 | 浅色 / 米黄 / 电子墨水 / 深色 均可选中且立即生效 |
+| G-02 | 持久化 | 刷新页面后主题保持 |
+| G-03 | 电子墨水 | 选中后正文为低对比度米灰底，无阴影 |
+
+### H. 文本转语音
+
+| ID | 用例 | 期望 |
+|----|------|------|
+| H-01 | 支持检测 | 工具栏出现朗读按钮（浏览器支持 speechSynthesis 时） |
+| H-02 | 播放/停止 | 点击开始朗读，再点停止 |
+
+### I. 鉴权与安全
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| I-01 | 未登录读订阅 | 不带 Cookie `GET /api/subscriptions` | **401** |
+| I-02 | 未登录读文章 | 不带 Cookie `GET /api/articles/<任意id>` | **401** |
+| I-03 | 越权隔离 | 用户 A 用自己的 Cookie 读用户 B 的文章 id | 404 |
+| I-04 | XSS 净化 | 源正文含 `<img onerror=...><script>` | 返回内容中 `onerror` 与 `<script>` 均被移除 |
+| I-05 | 伪造 token | 用 `your-secret-key` 签的 JWT 请求 `/api/auth/me` | 401 |
+| I-06 | 弱密钥拒绝启动 | `JWT_SECRET=your-jwt-secret-key-change-in-production` 启动 | 服务端抛 `AuthConfigError`，不签发票据 |
+
+### J. 运维
+
+| ID | 用例 | 期望 |
+|----|------|------|
+| J-01 | 健康检查 | `GET /api/health` 返回 200 `{"status":"ok","database":"ok"}` |
+| J-02 | 重启幂等 | `docker compose restart` 后数据不丢、不重复 seed |
+| J-03 | 非 root | `docker compose exec werss id` 显示 uid=1001 |
+| J-04 | 数据库可连 | 健康检查里 `database:"ok"`，库文件在 `/data/werss.db` |
+
+## 4. 自动化执行
+
+一条命令跑完 A–J 的全部可自动化用例：
+
+```bash
+node scripts/e2e-verify.mjs
+```
+
+脚本会：
+1. 检查 `/api/health`；
+2. 登录拿 cookie；
+3. 逐条断言 A–J 的 API 层用例；
+4. 用 Playwright 打开真实浏览器验证 UI 层用例（订阅 toast、左栏可见、快捷键、主题）；
+5. 输出 PASS/FAIL 汇总表，任一条失败则退出码非 0。
+
+## 5. 通过标准
+
+- A–J 全部用例 PASS；
+- `npx tsc --noEmit`、`npx next lint`、`npx vitest run` 均无错误；
+- 容器 `healthy`，重启后数据一致。
+
+## 6. 已知不覆盖
+
+| 项 | 原因 |
+|----|------|
+| Kindle 真实投递到设备 | 已实现并实测到「邮件成功交给 SMTP」为止；Amazon 侧的投递时效取决于发件域名信誉与白名单，自动化测试无法验证最终到达 |
+| 多设备同步 | 单机 SQLite，没有账号服务端 |
+| 移动端触屏手势 | 桌面 Docker 环境无法真实模拟触屏惯性滚动 |
+| 从旧到新的跨源去重 | 不同源可能转载同一篇文章，属于内容去重功能，未实现 |
+
+---
+
+## 4. 自动化验收脚本
+
+手工用例适合验收「手感」，但不适合每次改代码都重跑一遍。仓库里带了两套脚本，覆盖上面绝大多数用例：
+
+```bash
+npm run verify:e2e   # API 层，34 个用例
+npm run verify:ui    # 浏览器层，15 个用例（Playwright + 系统 Chrome）
+npm run verify       # 两套串联，任一失败则退出码非 0
+```
+
+**分工**：
+
+| 脚本 | 验证什么 | 不验证什么 |
+|------|----------|-----------|
+| `scripts/e2e-verify.mjs` | 接口契约、状态码、数据库副作用、鉴权边界 | 界面渲染、键盘交互、视觉状态 |
+| `scripts/ui-verify.mjs` | 只有真浏览器能验的：快捷键、主题持久化、toast 可见性、收藏图标状态 | 接口的完整字段矩阵 |
+
+**可覆盖的参数**（都读环境变量）：
+
+```bash
+BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 npm run verify
+```
+
+**已知的、刻意为之的「测试宽容」**：
+
+- **A-01 订阅用例会依次尝试多个源**。RSS 市场收录 890+ 个第三方站点，其中总有停更、下线、TLS 握手失败的。如果只点第一个，测试就会变成「今天某个第三方站点是否在线」的探测，而不是「订阅功能是否可用」。所以脚本最多试 8 个候选源，只要有一个成功就算通过，并在输出里标明用的是哪个。
+- **D-01 正文长度用例跨整个列表抽样**。原来只取前 8 篇，碰上全是快讯源的那一页会误判「全文抓取坏了」。现在按等距抽 20 篇取最大值。
+- **A-01（UI）同样逐个尝试**，且只要出现任何非「请先登录」的 toast 就算反馈链路通——因为「订阅失败：TLS 握手失败」也证明按钮确实接上了后端。
+
+**CI 里的位置**：`.github/workflows/ci.yml` 目前只跑 `typecheck` + `lint` + `build` + `test:unit`，不跑 `verify:*`。原因是这两套脚本需要一个真实运行的实例和网络访问，放在 CI 里要么起服务（增加构建时间），要么依赖外网（结果不稳定）。要接进 CI，建议单独开一个 job：
+
+```yaml
+  verify:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build
+      - run: |
+          until curl -sf http://127.0.0.1:3000/api/health; do sleep 2; done
+      - run: npm run verify
+        env:
+          JWT_SECRET: ci-only-secret-at-least-32-characters-long
+```
+
+---
+
+## 5. 本轮实测结果（2026-11-12）
+
+```
+npm run verify:e2e   → 结果：45/45 通过（未配 SMTP）/ 48/48 通过（配了 SMTP）
+npm run verify:ui    → 结果：18/18 通过
+node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
+npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）
+```
+
+容器状态：`docker compose ps` → `werss` **Up (healthy)**，端口 `0.0.0.0:3000->3000`。
+
+---
+
+## 6. Kindle 推送的实现与验证方式
+
+**实现原理**：Kindle 的 Send-to-Kindle 本质是邮件流程 —— 把文件作为附件发到 `xxx@kindle.com`（国际）或 `xxx@kindle.cn`（中国），Amazon 收到后推送到设备。所以这里只需要一个能发信的 SMTP 账号，**不需要 Amazon API、不需要 OAuth、不需要任何 Key**，与项目「拉下来就能跑」的定位一致。
+
+**发的是附件而不是正文**：Kindle 对邮件正文的排版支持很差，而 `.html` 附件会用设备自带的阅读引擎渲染，字号、断行、翻页都正常。文件名会成为书库里的书名，所以用文章标题。
+
+**没配 SMTP 时**：接口返回 503 + 具体缺哪几个环境变量；前端据此隐藏阅读器里的推送按钮，设置页显示「暂不可用」，而不是画一个点了没反应的入口。
+
+**权限**：只允许推送**自己订阅的源**里的文章。未订阅一律返回 404（与文章详情接口一致，不用状态码差异泄漏别人的文章 id 是否存在）。
+
+**投递记录**：每次推送都落一行 `kindle_deliveries`（状态 + 失败原因）。SMTP 的报错对普通用户没有可操作性，所以做了翻译：
+
+| SMTP 原始错误 | 返回给用户的话 |
+|---|---|
+| `not configured to receive` / `whitelist` | 请先把发件邮箱加入 Amazon 的「已批准的个人文档电子邮件列表」 |
+| `attachment` / `too large` | 邮件过大，这篇文章的图片可能太多 |
+| `auth` / `credential` | SMTP 认证失败，请检查 SMTP_USER / SMTP_PASSWORD |
+| `ENOTFOUND` / `ECONNREFUSED` / `timeout` | 连不上 SMTP 服务器，请检查 SMTP_HOST / SMTP_PORT |
+
+### 怎么验证真实投递
+
+自动化测试不往真邮箱发垃圾邮件。本地验证用一个 SMTP 桩接收全部邮件：
+
+```bash
+# 1) 起一个只收不发的 SMTP 桩（端口 2525）
+cd /tmp && npm i smtp-server
+node -e "
+const {SMTPServer}=require('smtp-server');
+new SMTPServer({authOptional:true,disabledCommands:['STARTTLS','AUTH'],
+  onData(s,sess,cb){let r='';s.on('data',c=>r+=c);s.on('end',()=>{
+    console.log(JSON.stringify({to:sess.envelope.rcptTo.map(x=>x.address),
+      bytes:r.length,attachment:/Content-Disposition:\s*attachment/i.test(r)}));cb();});}
+}).listen(2525,'0.0.0.0')"
+
+# 2) 让容器把邮件发到它
+#    docker-compose 的 environment 里加：
+#    SMTP_HOST=host.docker.internal  SMTP_PORT=2525  SMTP_SECURE=false
+#    SMTP_USER=任意  SMTP_PASSWORD=任意  SMTP_FROM=sender@werss.local
+#    extra_hosts: ["host.docker.internal:host-gateway"]
+
+# 3) 推一篇
+BASE_URL=http://127.0.0.1:3010 npm run verify:e2e   # K-04 会真的发一封
+```
+
+实测结果：SMTP 桩收到 `{ to: ["verify@kindle.cn"], bytes: 7238, attachment: true }`，`kindle_deliveries` 落库状态 `SENT`。
+
+**测试桩不支持 AUTH 是刻意的**：`smtp-server` 自带的默认 TLS 证书早已过期，nodemailer 会直接拒绝（报 `certificate has expired`），而这正好也被用来验证了错误翻译链路 —— K-02/K-03 的分支就是这么测出来的。

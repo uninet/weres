@@ -1,0 +1,604 @@
+openapi: 3.0.3
+info:
+  title: WeRSS API
+  description: Web-based RSS Reader Platform API
+  version: 1.0.0
+  contact:
+    name: WeRSS Team
+    email: support@werss.app
+
+servers:
+  - url: http://localhost:3002/api
+    description: Development server
+  - url: https://werss.app/api
+    description: Production server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Articles
+    description: Article management
+  - name: Feeds
+    description: RSS feed subscriptions
+  - name: Groups
+    description: Feed grouping
+  - name: Favorites
+    description: Article favorites
+  - name: Sync
+    description: RSS synchronization
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register new user
+      description: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - nickname
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  maxLength: 20
+                  description: User password (must contain letters and numbers)
+                nickname:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                  description: User display name
+      responses:
+        '200':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      token:
+                        type: string
+                        description: JWT token
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: User login
+      description: Authenticate user and return token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      token:
+                        type: string
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /articles:
+    get:
+      tags:
+        - Articles
+      summary: Get articles list
+      description: Retrieve paginated articles with optional filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: feedId
+          in: query
+          schema:
+            type: string
+          description: Filter by feed ID
+        - name: isRead
+          in: query
+          schema:
+            type: boolean
+          description: Filter by read status
+        - name: isStarred
+          in: query
+          schema:
+            type: boolean
+          description: Filter by starred status
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search keyword
+      responses:
+        '200':
+          description: Articles retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      articles:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Article'
+                      total:
+                        type: integer
+                      hasMore:
+                        type: boolean
+
+  /articles/{id}:
+    get:
+      tags:
+        - Articles
+      summary: Get article by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Article retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/ArticleDetail'
+        '404':
+          description: Article not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /articles/{id}/read:
+    post:
+      tags:
+        - Articles
+      summary: Mark article as read
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Article marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /feeds:
+    get:
+      tags:
+        - Feeds
+      summary: Get user's subscribed feeds
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Feeds retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Feed'
+
+    post:
+      tags:
+        - Feeds
+      summary: Subscribe to a new RSS feed
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: RSS feed URL
+                groupId:
+                  type: string
+                  description: Optional group ID
+      responses:
+        '200':
+          description: Feed subscribed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Feed'
+
+  /feeds/{id}:
+    delete:
+      tags:
+        - Feeds
+      summary: Unsubscribe from feed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Feed unsubscribed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /groups:
+    get:
+      tags:
+        - Groups
+      summary: Get feed groups
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Groups retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Group'
+
+    post:
+      tags:
+        - Groups
+      summary: Create new group
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+      responses:
+        '200':
+          description: Group created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Group'
+
+  /favorites:
+    get:
+      tags:
+        - Favorites
+      summary: Get favorite articles
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Favorites retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Article'
+
+  /favorites/{articleId}:
+    post:
+      tags:
+        - Favorites
+      summary: Add article to favorites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: articleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Article added to favorites
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+    delete:
+      tags:
+        - Favorites
+      summary: Remove article from favorites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: articleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Article removed from favorites
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /sync:
+    post:
+      tags:
+        - Sync
+      summary: Trigger RSS sync
+      description: Manually trigger RSS feed synchronization
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sync triggered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      synced:
+                        type: integer
+                        description: Number of feeds synced
+                      newArticles:
+                        type: integer
+                        description: Number of new articles fetched
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        nickname:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Article:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        link:
+          type: string
+          format: uri
+        pubDate:
+          type: string
+          format: date-time
+        isRead:
+          type: boolean
+        isStarred:
+          type: boolean
+        feed:
+          $ref: '#/components/schemas/Feed'
+
+    ArticleDetail:
+      allOf:
+        - $ref: '#/components/schemas/Article'
+        - type: object
+          properties:
+            content:
+              type: string
+              description: Full article content (HTML)
+
+    Feed:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+        icon:
+          type: string
+          format: uri
+        lastSyncAt:
+          type: string
+          format: date-time
+          nullable: true
+        unreadCount:
+          type: integer
+        groupId:
+          type: string
+          nullable: true
+
+    Group:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        feeds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feed'

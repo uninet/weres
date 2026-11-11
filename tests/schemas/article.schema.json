@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Article Schema",
+  "description": "Schema for RSS article objects",
+  "type": "object",
+  "required": ["id", "title", "link", "pubDate", "isRead", "isStarred"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique article identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Article title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Article summary or excerpt"
+    },
+    "link": {
+      "type": "string",
+      "format": "uri",
+      "description": "Original article URL"
+    },
+    "pubDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Publication date and time"
+    },
+    "isRead": {
+      "type": "boolean",
+      "description": "Whether the article has been read"
+    },
+    "isStarred": {
+      "type": "boolean",
+      "description": "Whether the article is favorited"
+    },
+    "feed": {
+      "$ref": "feed.schema.json"
+    },
+    "content": {
+      "type": "string",
+      "description": "Full article content (HTML format)"
+    }
+  },
+  "additionalProperties": false
+}
