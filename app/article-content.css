@@ -8,6 +8,29 @@
   color: #2a2a2a;
 }
 
+/* ---------------------------------------------------------------------------
+   解除 RSS 原文自带的「居中窄栏」布局
+   ---------------------------------------------------------------------------
+   很多公众号/资讯站导出正文时会在最外层 div 上写死
+   `style="max-width: 680px; margin-left: 76px"` —— 那是给它们自己整页排版用的。
+   这些内联样式被净化器保留下来（width/max-width 属于白名单属性），塞进阅读器后
+   会把正文挤成一条 600px 的窄柱，左右还各留一段空白，与「顶天立地」直接冲突。
+
+   实测：1600px 宽的窗口里，<article> 有 928px，但正文段落只有 600px，
+   差额全部来自原文那层 max-width + margin-left。
+
+   只对块级容器解约束：img / table 的 max-width:100% 必须保留，
+   否则大图会撑破容器。margin 只重置直接子元素，避免影响 figure 的居中。
+--------------------------------------------------------------------------- */
+.article-content :is(div, section, article, main, figure) {
+  max-width: 100% !important;
+}
+
+.article-content > :is(div, section, article, main) {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
 .dark .article-content {
   color: #d0d0d0;
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
-import { sanitizeArticleHtml, sanitizePlainText } from "@/lib/sanitize";
+import { sanitizePlainText } from "@/lib/sanitize";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -162,7 +162,21 @@ export async function GET(req: Request) {
     const fetchLimit = Math.min(pageSize * 2, MAX_PAGE_SIZE * 2);
     const rawArticles = await prisma.article.findMany({
       where,
-      include: {
+      // 列表接口不取全文。
+      //
+      // 之前这里用 include 把 content 一起拉回来：每篇文章正文平均 6KB，
+      // 一页 50 篇就是 300KB 起步（实测某期日报单篇 58KB，一页将近 3MB），
+      // 而列表界面只显示标题、摘要和缩略图 —— 全文 100% 是浪费。
+      // 用户点开某篇时前端再去 /api/articles/:id 取正文，
+      // 那条路径会做「剥掉重复标题」等只有正文才需要的处理。
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        link: true,
+        author: true,
+        pubDate: true,
+        imageUrl: true,
         feed: {
           select: {
             id: true,
@@ -220,8 +234,6 @@ export async function GET(req: Request) {
       title: article.title,
       // description 来自第三方 RSS，部分源往里塞 HTML 片段，剥成纯文本再返回
       description: sanitizePlainText(article.description),
-      // 正文来自第三方站点，渲染前必须净化（前端用 dangerouslySetInnerHTML）
-      content: sanitizeArticleHtml(article.content),
       link: article.link,
       author: article.author,
       pubDate: article.pubDate,

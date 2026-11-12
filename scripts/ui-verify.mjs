@@ -456,6 +456,52 @@ async function main() {
     `点击前 ${dotsBefore} → 点击后 ${dotsAfter}`
   );
 
+  // ---------------- 正文排版（S 组） ----------------
+  // 收录的源大多自带「居中窄栏」排版（max-width: 680px、重复标题），
+  // 不处理的话正文会被挤成一条窄柱，标题还会重复两遍。
+  const parsePx = (v) => Number(String(v || "0").replace("px", "")) || 0;
+
+  const layout = await page.evaluate(() => {
+    const ac = document.querySelector(".article-content");
+    const h1 = document.querySelector("article h1");
+    if (!ac) return null;
+    const ps = Array.from(ac.querySelectorAll("p")).filter(
+      (e) => e.textContent.trim().length > 30
+    );
+    return {
+      paraWidth: ps[0] ? Math.round(ps[0].getBoundingClientRect().width) : 0,
+      contentBoxWidth: Math.round(ac.getBoundingClientRect().width),
+      title: h1 ? h1.textContent.trim() : "",
+      contentStart: ac.textContent.trim().slice(0, 60),
+      contentLen: ac.textContent.length,
+    };
+  });
+
+  if (layout) {
+    // 用「占内容区比例」而不是绝对像素：不同源自己的卡片内边距不一样
+    // （有的 16px、有的 24px + 24px），绝对宽度会在 660–720px 之间浮动。
+    // 真正要防的是原文那层 `max-width: 680px` 把 832px 的内容区压到 600px 以下。
+    const ratio = layout.contentBoxWidth > 0 ? layout.paraWidth / layout.contentBoxWidth : 0;
+    record(
+      "S-01",
+      "正文行宽不被原文窄栏压缩",
+      ratio > 0.78,
+      `段落 ${layout.paraWidth}px / 内容区 ${layout.contentBoxWidth}px = ${(ratio * 100).toFixed(0)}%`
+    );
+    const normalized = (t) => t.replace(/\s+/g, "").toLowerCase();
+    const titleNorm = normalized(layout.title);
+    const startNorm = normalized(layout.contentStart);
+    record(
+      "S-02",
+      "正文开头不重复顶部标题",
+      titleNorm.length > 0 && !startNorm.startsWith(titleNorm.slice(0, 12)),
+      `标题「${layout.title.slice(0, 14)}」 正文开头「${layout.contentStart.slice(0, 20)}」`
+    );
+    record("S-05", "详情接口返回净化后的全文", layout.contentLen > 1000, `正文 ${layout.contentLen} 字`);
+  } else {
+    record("S-01", "正文行宽不被原文窄栏压缩", false, "没找到 .article-content");
+  }
+
   // ---------------- 响应式布局（R 组） ----------------
   // 桌面三栏，小屏三级页面（侧栏 → 列表 → 正文）。
   // 小屏最怕「点了没反应」，所以既查不溢出，也查点完源之后正文别抢走屏幕。

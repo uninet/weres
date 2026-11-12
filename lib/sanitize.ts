@@ -302,3 +302,66 @@ export function sanitizePlainText(text: string | null | undefined, maxLength = 1
 
   return stripped.length > maxLength ? stripped.slice(0, maxLength) : stripped;
 }
+
+/**
+ * 去掉正文开头重复的那份标题。
+ *
+ * 大量公众号/资讯站导出正文时会把标题连同「来源/作者/日期」一起写进
+ * HTML 里。阅读器自己在正文上方已经渲染了一次标题，于是用户看到的是
+ * 同一个大标题连着出现两遍 —— 第二遍还带着原文站点的排版（字号、颜色、
+ * 分隔线），像一篇文章里嵌了另一篇文章的页头。
+ *
+ * 只处理「开头这几个块级元素里，textContent 与标题完全相同」的那一个：
+ *   - 用规范化后的文本比对（去空白、去零宽字符），避免标题里有换行或
+ *     全角空格时匹配不上；
+ *   - 要求该元素的文本不包含别的有效内容（文本长度与标题接近），
+ *     否则会误删「标题 + 摘要」合在一个 div 里的情况；
+ *   - 只从前往后扫，最多看前 8 个顶层元素 —— 正文中间的标题是分节标题，
+ *     那是内容本身，不能动。
+ */
+export function stripLeadingDuplicateTitle(html: string, title: string): string {
+  const normalizedTitle = normalizeForCompare(title);
+  if (!html || normalizedTitle.length < 4) return html;
+
+  const $ = cheerio.load(html);
+  const root = $("body");
+
+  // 按文档顺序遍历，但一旦遇到「非标题的正文」就停手。
+  // 各站的嵌套层级千差万别：有的标题是最外层 div，有的被埋在
+  // 「居中容器 > 页头 > 标题行」三层里，只认顶层元素会漏。
+  let consumedContent = 0;
+
+  for (const element of root.find("*").toArray()) {
+    if (consumedContent > 200) break; // 已经进入正文，后面的是分节标题
+
+    const $el = $(element);
+    // 有块级子元素说明这不是一个「只放标题」的容器
+    const hasBlockChildren = $el.children("div, p, section, article, table, ul, ol").length > 0;
+    if (hasBlockChildren) continue;
+
+    const text = normalizeForCompare($el.text());
+    if (!text) continue;
+
+    const isTitleOnly =
+      text === normalizedTitle ||
+      (text.startsWith(normalizedTitle) && text.length <= normalizedTitle.length + 3);
+
+    if (isTitleOnly) {
+      $el.remove();
+      break;
+    }
+
+    // 这段不是标题，累积它的正文量；超过阈值就判定「已经进正文了」
+    consumedContent += text.length;
+  }
+
+  return root.html() ?? html;
+}
+
+/** 比对用规范化：去零宽字符、去所有空白、统一大小写。 */
+function normalizeForCompare(input: string): string {
+  return input
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}

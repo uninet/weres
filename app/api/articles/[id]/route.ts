@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
-import { sanitizeArticleHtml } from "@/lib/sanitize";
+import { sanitizeArticleHtml, stripLeadingDuplicateTitle } from "@/lib/sanitize";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -62,7 +62,12 @@ export async function GET(
         feed,
         // 正文来自第三方站点，必须净化后再交给前端
         // dangerouslySetInnerHTML 渲染，否则可被注入任意脚本。
-        content: sanitizeArticleHtml(article.content),
+        // 先净化再剥重复标题：净化会拆掉原文的包裹层，
+        // 顺序反了会让「标题 + 页头」粘在同一个块里，剥不干净。
+        content: stripLeadingDuplicateTitle(
+          sanitizeArticleHtml(article.content),
+          article.title
+        ),
       },
     });
   } catch (error) {

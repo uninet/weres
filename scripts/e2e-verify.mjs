@@ -519,10 +519,22 @@ async function testContent() {
     //
     // 必须从多个源里抽样 —— 只看最新的前几条会踩到「刚好都是快讯源」
     // 的情况，那是抽样偏差，不是抓取失效。
+    // 按源分层抽样，每个源最多取 3 篇。
+    //
+    // 之前是全列表等距抽样，问题是列表按 pubDate 排序，同一时段
+    // 往往被一两个「快讯型」源霸占（36氪快讯、IT之家短讯都在 200–400 字），
+    // 等距抽 20 篇可能一条长文都没抽到，误判成「全文抓取失效」。
+    // 库里确实有大量长文（最新 50 篇里有 6 篇超过 5000 字），
+    // 所以要让抽样覆盖到足够多的不同源。
+    const perFeed = new Map();
     const spread = [];
-    const step = Math.max(1, Math.floor(list.length / 20));
-    for (let i = 0; i < list.length && spread.length < 20; i += step) {
-      spread.push(list[i]);
+    for (const a of list) {
+      const key = a.feed?.id || "unknown";
+      const picked = perFeed.get(key) || 0;
+      if (picked >= 3) continue;
+      perFeed.set(key, picked + 1);
+      spread.push(a);
+      if (spread.length >= 30) break;
     }
     const long = await Promise.all(
       spread.map((a) => api(`/api/articles/${a.id}`))
@@ -540,7 +552,7 @@ async function testContent() {
       "D-01",
       "全文抓取生效（有长正文）",
       maxLen > 5000,
-      `最长 ${maxLen} 字符（${maxFeed}），抽样 ${spread.length} 篇`
+      `最长 ${maxLen} 字符（${maxFeed}），抽样 ${spread.length} 篇 / ${perFeed.size} 个源`
     );
   }
 }

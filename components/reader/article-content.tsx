@@ -425,7 +425,7 @@ export function ArticleContent({
           <article
             key={article.id}
             className={cn(
-              "mx-auto w-full px-4 sm:px-8 lg:px-12 pt-8 pb-16",
+              "mx-auto w-full px-4 sm:px-8 lg:px-12 pt-6 pb-16",
               "animate-content-in",
               getContentWidthClass(contentWidth),
               getFontSizeClass(fontSize),
@@ -434,9 +434,11 @@ export function ArticleContent({
             )}
           >
             {/* Header */}
-            <header className="mb-10">
+            {/* 首屏尽量让正文早出现：标题块上下的留白从 40px 收到 24px。
+                阅读器不是营销落地页，用户进来是看内容的，不是看留白的。 */}
+            <header className="mb-6">
               {/* Source Badge */}
-              <div className="flex items-center gap-3 mb-6">
+              <div className="flex items-center gap-3 mb-4">
                 <span className="px-3 py-1 bg-[#007AFF]/10 text-[#007AFF] rounded-full text-sm font-medium">
                   {article.feed?.title}
                 </span>
@@ -452,7 +454,7 @@ export function ArticleContent({
               </div>
 
               {/* Title */}
-              <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold mb-6 leading-tight text-[#1a1a1a] dark:text-white">
+              <h1 className="text-2xl md:text-3xl lg:text-[2.1rem] font-bold mb-4 leading-[1.25] text-[#1a1a1a] dark:text-white">
                 {article.title}
               </h1>
 
@@ -469,7 +471,7 @@ export function ArticleContent({
             </header>
 
             {/* Divider */}
-            <div className="w-12 h-0.5 bg-[#007AFF] mb-10" />
+            <div className="w-12 h-0.5 bg-[#007AFF] mb-6" />
 
             {/* Content */}
             <div

@@ -137,16 +137,6 @@ export default function ReaderPage() {
     checkAuth();
   }, []);
 
-  // 自动选中第一篇文章
-  useEffect(() => {
-    if (listOnly) return;
-    // 小屏不自动选中：三栏变成三级页面后，自动进正文会让用户
-    // 点完源瞬间看不见列表，以为「点了没反应」。
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return;
-    if (articles.length > 0 && !selectedArticle) {
-      setSelectedArticle(articles[0]);
-    }
-  }, [articles, selectedArticle, listOnly]);
 
   // 处理文章选择
   const handleSelectArticle = useCallback(
@@ -179,6 +169,20 @@ export default function ReaderPage() {
     },
     [markArticleAsRead, preferences.autoMarkRead]
   );
+
+  // 自动选中第一篇文章
+  useEffect(() => {
+    if (listOnly) return;
+    // 小屏不自动选中：三栏变成三级页面后，自动进正文会让用户
+    // 点完源瞬间看不见列表，以为「点了没反应」。
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return;
+    if (articles.length > 0 && !selectedArticle) {
+      // 走 handleSelectArticle 而不是直接 setSelectedArticle：
+      // 列表接口已经不返回 content（省掉每页几百 KB 的无用负载），
+      // 直接塞进去右侧会是空白正文，必须由它去 /api/articles/:id 取全文。
+      handleSelectArticle(articles[0]);
+    }
+  }, [articles, selectedArticle, listOnly, handleSelectArticle]);
 
   // 获取当前文章索引
   const getCurrentArticleIndex = useCallback(() => {
@@ -486,13 +490,19 @@ export default function ReaderPage() {
               readerTheme={readerTheme}
               onReaderThemeChange={setReaderTheme}
               onShowRestriction={handleShowRestriction}
-              onMarkReadByScroll={(id) => {
-                // 滚动读完后标记已读，并同步更新列表状态
-                markArticleAsRead(id);
-                setSelectedArticle((prev) =>
-                  prev && prev.id === id ? { ...prev, isRead: true } : prev
-                );
-              }}
+              // 滚动读完标记已读，但要受「自动标记已读」开关约束。
+              // 关闭该开关的用户诉求是「别替我改未读状态」——如果只堵住
+              // 打开文章那一条路径、滚动这条照旧，开关就等于只关了一半。
+              onMarkReadByScroll={
+                preferences.autoMarkRead
+                  ? (id) => {
+                      markArticleAsRead(id);
+                      setSelectedArticle((prev) =>
+                        prev && prev.id === id ? { ...prev, isRead: true } : prev
+                      );
+                    }
+                  : undefined
+              }
               onToggleFavorite={handleToggleFavorite}
               allTags={allTags}
               articleTags={articleTags}

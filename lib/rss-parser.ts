@@ -2,7 +2,7 @@ import Parser from 'rss-parser';
 import * as cheerio from 'cheerio';
 import type { Feed } from '@prisma/client';
 import { prisma } from './prisma';
-import { sanitizeArticleHtml } from './sanitize';
+import { sanitizeArticleHtml, stripLeadingDuplicateTitle } from './sanitize';
 import { assertSafeOutboundUrl } from './url-safety';
 import { notifyFeedUpdates } from './notify';
 
@@ -974,7 +974,9 @@ export async function syncFeed(feedId: string): Promise<FeedSyncResult> {
         // 这里在「入库前」净化一次，各 API 在「出库后」还会再净化一次，
         // 因为历史数据里已经存在未净化的脏内容。
         if (content) {
-          content = sanitizeArticleHtml(content);
+          // 先净化再剥开头那个与标题重复的块：净化会拆掉原文的包裹层，
+      // 顺序反了会让「标题 + 页头」粘在同一个块里，剥不干净。
+      content = stripLeadingDuplicateTitle(sanitizeArticleHtml(content), item.title || '');
         }
 
         // 提取描述（列表页摘要）
