@@ -10,10 +10,22 @@ import {
   rateLimitConfigs,
 } from "@/lib/rate-limit";
 
+// 密码策略与 /api/auth/reset-password 保持一致：8–72 位，且必须同时
+// 含字母和数字。
+//
+// 原来是 6–20 位、没有任何复杂度要求，所以 "123456" 和 "abcdef" 都能
+// 注册成功。这跟重置密码那条链路（要求 8 位 + 字母数字）自相矛盾：
+// 用户被强制重置成一个强密码，却能再注册一个纯数字弱密码。
+// 上限 72 是 bcrypt 的输入截断点，超过的部分会被静默丢弃。
 const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6).max(20),
-  nickname: z.string().min(2).max(20).optional(),
+  password: z
+    .string()
+    .min(8, "密码至少 8 位")
+    .max(72, "密码最多 72 位")
+    .regex(/[A-Za-z]/, "密码需要包含字母")
+    .regex(/[0-9]/, "密码需要包含数字"),
+  nickname: z.string().min(2, "昵称至少 2 个字").max(20, "昵称最多 20 个字").optional(),
 });
 
 export async function POST(req: Request) {

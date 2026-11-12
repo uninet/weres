@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import { parsePagination } from "@/lib/pagination";
+import { readJsonBody } from "@/lib/request";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -10,11 +12,6 @@ export const dynamic = "force-dynamic";
 
 const addHistorySchema = z.object({
   articleId: z.string(),
-});
-
-const getHistorySchema = z.object({
-  page: z.string().optional().default("1"),
-  limit: z.string().optional().default("20"),
 });
 
 // GET /api/history - 获取阅读历史
@@ -28,14 +25,9 @@ export async function GET(req: Request) {
     const { user } = auth;
 
     const { searchParams } = new URL(req.url);
-    const params = getHistorySchema.parse({
-      page: searchParams.get("page") || "1",
-      limit: searchParams.get("limit") || "20",
-    });
-
-    const page = parseInt(params.page);
-    const limit = parseInt(params.limit);
-    const skip = (page - 1) * limit;
+    // 分页参数统一夹紧：history 表能有几万行，limit=999999
+    // 实测一次返回 253KB。
+    const { page, pageSize: limit, skip } = parsePagination(searchParams, "limit");
 
     const [histories, total] = await Promise.all([
       prisma.readHistory.findMany({
@@ -112,8 +104,9 @@ export async function POST(req: Request) {
     }
     const { user } = auth;
 
-    const body = await req.json();
-    const { articleId } = addHistorySchema.parse(body);
+    const parsed = await readJsonBody(req, "请提供 articleId");
+    if (!parsed.ok) return parsed.response;
+    const { articleId } = addHistorySchema.parse(parsed.data);
 
     // 使用 upsert 来更新或创建阅读历史
     const history = await prisma.readHistory.upsert({

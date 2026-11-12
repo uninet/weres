@@ -113,6 +113,27 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 > 遍历，遇到「不含块级子元素、且文本等于标题」的元素就删掉并立刻停止，
 > 中途累计到 200 字以上则判定「已进入正文」不再寻找。
 
+### V. 服务端健壮性
+
+这一组全是回归测试：下面每一条都对应一个真实修掉过的缺陷，不是假想的边界。
+
+| 编号 | 场景 | 预期 |
+| --- | --- | --- |
+| V-01 | 8 个写接口 × {空 body, 空字符串, 坏 JSON} | 全部 4xx，不能是 500 |
+| V-02 | `?limit=999999` / `?pageSize=999999` | 夹到 100 |
+| V-03 | `?limit=0` | 夹到 1，不返回空页 |
+| V-04 | `/api/favorites?search=React` | 200（SQLite 不支持 `mode: "insensitive"`，曾经整条 500） |
+| V-05 | 市场页订阅数 | 与实际 `subscriptions` 行数一致 |
+
+> **V 组的由来**：`POST /api/groups` 不带 body 一直返回 500「创建失败」——
+> `await req.json()` 在空 body 时抛 SyntaxError，落进路由的 catch 就变成 500，
+> 但这是调用方少传参数，属于 400。同样的写法散落在 8 个接口里，统一改用
+> `lib/request.ts` 的 `readJsonBody()`，返回判别式联合强迫调用方处理失败分支。
+> V-05 则是因为 `MarketFeed.subscriberCount` 靠 increment/decrement 维护，
+> 但只有 `/api/subscriptions` 一条路径在维护它，UI 实际走的
+> `/api/feeds/subscriptions` 从不碰——实测同一时刻「少数派」显示 0、实际有 1 个订阅。
+> 改成在 `/api/market` 里一次 `groupBy` 实时统计。
+
 ### U. 导航入口（顶栏取消）
 
 原来阅读器顶部有 `h-14` 的横栏：logo / 全部·稍后阅读·未读 / 主题 / 设置 / 个人中心，
@@ -366,8 +387,8 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 ## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：61/61 通过（未配 SMTP）/ 64/64 通过（配了 SMTP）
-npm run verify:ui    → 结果：21/21 通过
+npm run verify:e2e   → 结果：69/69 通过（未配 SMTP）/ 72/72 通过（配了 SMTP）
+npm run verify:ui    → 结果：33/33 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

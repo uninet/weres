@@ -48,9 +48,25 @@ export async function GET(req: Request) {
       userSubscriptions = subscriptions.map(sub => sub.feedId);
     }
 
+    // 订阅数按实际订阅记录实时统计，不读 MarketFeed.subscriberCount。
+    //
+    // 那个字段靠 increment/decrement 维护，但维护它的只有
+    // /api/subscriptions 一条路径：UI 实际用的 /api/feeds/subscriptions
+    // 从来不碰它，取消订阅的两条路径行为也不一致。结果是这个计数器
+    // 只会往上飘，实测同一时刻「少数派」显示 0、实际有 1 个订阅。
+    // 一次 groupBy 就能拿到全部真实数量，比维护十处配对逻辑可靠。
+    const actualCounts = await prisma.subscription.groupBy({
+      by: ["feedId"],
+      _count: { _all: true },
+    });
+    const countMap = new Map(
+      actualCounts.map((row) => [row.feedId, row._count._all])
+    );
+
     // 添加用户订阅状态
-    const enrichedFeeds = marketFeeds.map(mf => ({
+    const enrichedFeeds = marketFeeds.map((mf) => ({
       ...mf,
+      subscriberCount: countMap.get(mf.feed.id) ?? 0,
       isSubscribed: userSubscriptions.includes(mf.feed.id),
     }));
 

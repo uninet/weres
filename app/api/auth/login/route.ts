@@ -10,6 +10,12 @@ import {
   rateLimitConfigs,
 } from "@/lib/rate-limit";
 
+// 登录的口令下限刻意保持 6 位，不跟注册/重置的 8 位对齐。
+//
+// 这里校验的是「用户已有的密码」，不是「用户要设的新密码」。
+// 收紧它不会提升任何安全性（错误密码照样被 bcrypt 拒绝），只会把
+// 在策略变更前注册的老账号锁在门外——包括 seed 里的演示账号。
+// 真正的强度约束加在 register 与 reset-password 两处。
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),

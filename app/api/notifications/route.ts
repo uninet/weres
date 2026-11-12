@@ -2,17 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import { parsePagination } from "@/lib/pagination";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
 // 并且在部署后永远返回同一份旧数据）。
 export const dynamic = "force-dynamic";
-
-const getNotificationsSchema = z.object({
-  page: z.string().optional().default("1"),
-  limit: z.string().optional().default("20"),
-  unreadOnly: z.string().optional().default("false"),
-});
 
 // GET /api/notifications - 获取通知列表
 export async function GET(req: Request) {
@@ -24,16 +19,9 @@ export async function GET(req: Request) {
     const { user } = auth;
 
     const { searchParams } = new URL(req.url);
-    const params = getNotificationsSchema.parse({
-      page: searchParams.get("page") || "1",
-      limit: searchParams.get("limit") || "20",
-      unreadOnly: searchParams.get("unreadOnly") || "false",
-    });
-
-    const page = parseInt(params.page);
-    const limit = parseInt(params.limit);
-    const skip = (page - 1) * limit;
-    const unreadOnly = params.unreadOnly === "true";
+    // 分页参数统一夹紧，其余参数仍走 zod 校验
+    const { page, pageSize: limit, skip } = parsePagination(searchParams, "limit");
+    const unreadOnly = searchParams.get("unreadOnly") === "true";
 
     const where = {
       userId: user.id,
@@ -97,8 +85,18 @@ export async function PATCH(req: Request) {
     }
     const { user } = auth;
 
-    const body = await req.json();
-    const { ids, markAll } = body;
+    // 空 body 会让 req.json() 抛 SyntaxError，落到下面的 catch 变成 500 ——
+    // 但这是调用方少传了参数，属于 400。改成自己兜住。
+    let body: { ids?: string[]; markAll?: boolean } = {};
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "请提供要标记的通知 ID，或设置 markAll" },
+        { status: 400 }
+      );
+    }
+    const { ids, markAll } = body || {};
 
     if (markAll) {
       // 标记所有通知为已读
@@ -112,7 +110,7 @@ export async function PATCH(req: Request) {
       });
     } else if (ids && ids.length > 0) {
       // 标记指定通知为已读
-      await prisma.notification.updateMany({
+      const result = await prisma.notification.updateMany({
         where: {
           userId: user.id,
           id: { in: ids },
@@ -120,8 +118,10 @@ export async function PATCH(req: Request) {
         data: { isRead: true },
       });
 
+      // 用实际改动条数而不是请求里的 id 数量：传了别人的 id 时
+      // where 会把它过滤掉，`ids.length` 会报出一个并不存在的战绩。
       return NextResponse.json({
-        message: `已标记 ${ids.length} 条通知为已读`,
+        message: `已标记 ${result.count} 条通知为已读`,
       });
     } else {
       return NextResponse.json(
@@ -162,15 +162,17 @@ export async function DELETE(req: Request) {
       });
     } else if (ids.length > 0) {
       // 删除指定通知
-      await prisma.notification.deleteMany({
+      const result = await prisma.notification.deleteMany({
         where: {
           userId: user.id,
           id: { in: ids },
         },
       });
 
+      // 同上：报实际删除条数。传了不属于自己的 id 时这里是 0，
+      // 而不是请求里有几个 id 就报几个。
       return NextResponse.json({
-        message: `已删除 ${ids.length} 条通知`,
+        message: result.count > 0 ? `已删除 ${result.count} 条通知` : "没有可删除的通知",
       });
     } else {
       return NextResponse.json(

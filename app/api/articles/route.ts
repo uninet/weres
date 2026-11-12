@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { sanitizePlainText } from "@/lib/sanitize";
+import { readJsonBody } from "@/lib/request";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -286,7 +287,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const { feedId } = await req.json();
+    const parsed = await readJsonBody<{ feedId?: string }>(req, "请提供 feedId");
+    if (!parsed.ok) return parsed.response;
+    const { feedId } = parsed.data;
 
     // 获取用户已读文章 ID
     const readHistories = await prisma.readHistory.findMany({

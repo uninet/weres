@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { readJsonBody } from "@/lib/request";
 
 // DELETE /api/feeds/subscriptions/[id] - 取消订阅
 // [id] 可以是 subscription.id 或 feedId
@@ -72,8 +73,12 @@ export async function PATCH(
     const { user } = auth;
     const { id } = params;
 
-    const body = await req.json();
-    const { isNotify, groupId } = body;
+    const parsed = await readJsonBody<{ isNotify?: boolean; groupId?: string }>(
+      req,
+      "请提供要修改的字段"
+    );
+    if (!parsed.ok) return parsed.response;
+    const { isNotify, groupId } = parsed.data;
 
     // 检查订阅是否存在且属于当前用户
     const subscription = await prisma.subscription.findFirst({

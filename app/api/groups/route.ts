@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
+import { readJsonBody } from "@/lib/request";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -170,8 +171,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
-    const { name, sortOrder = 0 } = createGroupSchema.parse(body);
+    const parsed = await readJsonBody(req, "请提供分组名称");
+    if (!parsed.ok) return parsed.response;
+    const { name, sortOrder = 0 } = createGroupSchema.parse(parsed.data);
 
     const group = await prisma.group.create({
       data: {
@@ -249,8 +251,9 @@ export async function PATCH(req: Request) {
       );
     }
 
-    const body = await req.json();
-    const data = updateGroupSchema.parse(body);
+    const parsed = await readJsonBody(req, "请提供要修改的分组字段");
+    if (!parsed.ok) return parsed.response;
+    const data = updateGroupSchema.parse(parsed.data);
 
     const group = await prisma.group.update({
       where: { id },

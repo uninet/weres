@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import { parsePagination } from "@/lib/pagination";
+import { readJsonBody } from "@/lib/request";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -10,12 +12,6 @@ export const dynamic = "force-dynamic";
 
 const toggleFavoriteSchema = z.object({
   articleId: z.string(),
-});
-
-const getFavoritesSchema = z.object({
-  page: z.string().optional().default("1"),
-  limit: z.string().optional().default("20"),
-  search: z.string().optional(),
 });
 
 // GET /api/favorites - 获取收藏列表
@@ -28,24 +24,20 @@ export async function GET(req: Request) {
     const { user } = auth;
 
     const { searchParams } = new URL(req.url);
-    const params = getFavoritesSchema.parse({
-      page: searchParams.get("page") || "1",
-      limit: searchParams.get("limit") || "20",
-      search: searchParams.get("search") || undefined,
-    });
+    const keyword = searchParams.get("search")?.trim() || "";
 
-    const page = parseInt(params.page);
-    const limit = parseInt(params.limit);
-    const skip = (page - 1) * limit;
+    // 分页参数统一夹紧（limit=999999 会一次拉出整表）
+    const { page, pageSize: limit, skip } = parsePagination(searchParams, "limit");
 
     const where = {
       userId: user.id,
-      ...(params.search && {
+      // 注意：这里不能用 `mode: "insensitive"`。SQLite 的 LIKE 本来
+      // 就不区分大小写，但 Prisma 的 sqlite provider 不支持这个参数，
+      // 传了会直接报 "Unknown argument `mode`" —— 实测 /api/favorites
+      // ?search=React 因此一直返回 500。
+      ...(keyword && {
         article: {
-          title: {
-            contains: params.search,
-            mode: "insensitive" as const,
-          },
+          title: { contains: keyword },
         },
       }),
     };
@@ -122,8 +114,9 @@ export async function POST(req: Request) {
     }
     const { user } = auth;
 
-    const body = await req.json();
-    const { articleId } = toggleFavoriteSchema.parse(body);
+    const parsed = await readJsonBody(req, "请提供 articleId");
+    if (!parsed.ok) return parsed.response;
+    const { articleId } = toggleFavoriteSchema.parse(parsed.data);
 
     // 检查是否已收藏
     const existingFavorite = await prisma.favorite.findUnique({

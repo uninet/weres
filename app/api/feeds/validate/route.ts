@@ -3,6 +3,7 @@ import { validateRSSUrl, extractFavicon } from "@/lib/rss-parser";
 import { UnsafeUrlError } from "@/lib/url-safety";
 import { z } from "zod";
 import { getClientIdentifier, checkRateLimit, checkGlobalRateLimit, rateLimitConfigs } from "@/lib/rate-limit";
+import { readJsonBody } from "@/lib/request";
 
 // 这个接口要读请求头做限流标识，不能被预渲染
 export const dynamic = "force-dynamic";
@@ -13,8 +14,9 @@ const validateSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { url } = validateSchema.parse(body);
+    const parsed = await readJsonBody(req, "请提供要校验的 RSS 地址");
+    if (!parsed.ok) return parsed.response;
+    const { url } = validateSchema.parse(parsed.data);
 
     // 速率限制 - 防止滥用
     //

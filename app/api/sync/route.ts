@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { syncFeed, syncAllFeeds } from "@/lib/rss-parser";
 import { requireAuth } from "@/lib/auth";
 import { checkRateLimit, rateLimitConfigs } from "@/lib/rate-limit";
+import { readJsonBody } from "@/lib/request";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -31,8 +32,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
-    const { feedId } = body;
+    const parsed = await readJsonBody<{ feedId?: string }>(req, "请提供 feedId，或传空对象同步全部");
+    if (!parsed.ok) return parsed.response;
+    const { feedId } = parsed.data;
 
     if (feedId) {
       // 同步指定 RSS 源

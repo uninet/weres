@@ -250,43 +250,68 @@ async function testSubscribe() {
   // 不能只取第一个：RSS 市场的源里总有几个站点会临时 TLS 失败、
   // 返回 5xx 或者本身已经停更。测试应该证明「订阅功能可用」，
   // 而不是证明「某个第三方站点此刻是否在线」。
-  const candidates = feeds.filter((f) => !f.isSubscribed).slice(0, 8);
-  if (candidates.length === 0) {
-    record("A-01", "从市场订阅", false, "所有源都已订阅，无法测试");
-    return;
-  }
+  // 订阅要先 parseRSS 抓一次真实站点，所以「哪些源此刻能连上」完全由
+  // 第三方可用性决定。之前取前 8 个未订阅源逐个试，碰到连续 8 个都
+  // 超时/停更就整条失败 —— 那时测出来的是「今天这几个站点在线吗」，
+  // 不是「订阅功能好不好用」。
+  //
+  // 改成先挑一个**已经订阅成功过**的源，取消订阅，再重新订阅：
+  // 这个源本身已被验证可抓，测的就是我们自己的链路。
+  const subsRes = await api("/api/feeds/subscriptions");
+  const groupsObj = subsRes.body?.data?.groups || {};
+  const mySubs = Object.values(groupsObj).flatMap((g) => g.subscriptions || []);
 
   let target = null;
-  let sub = null;
-  for (const cand of candidates) {
-    const attempt = await api("/api/feeds/subscriptions", {
-      method: "POST",
-      body: JSON.stringify({ url: cand.feed?.url, isNotify: true }),
-    });
-    if (attempt.status === 200 && attempt.body?.success === true) {
-      target = cand;
-      sub = attempt;
-      break;
+  let url = null;
+  if (mySubs.length > 0) {
+    const known = mySubs.find((s) => s.feed?.url);
+    if (known) {
+      // 先取消，才能重新走一遍订阅流程
+      await api(`/api/feeds/subscriptions/${known.id}`, { method: "DELETE" });
+      const again = await api("/api/feeds/subscriptions", {
+        method: "POST",
+        body: JSON.stringify({ url: known.feed.url, isNotify: true }),
+      });
+      if (again.status === 200 && again.body?.success === true) {
+        target = { feed: known.feed };
+        url = known.feed.url;
+        record(
+          "A-01",
+          `重新订阅 ${known.feed.title}`,
+          true,
+          `status=${again.status} msg=${again.body?.message || ""}`
+        );
+      }
+    }
+  }
+
+  // 兜底：本地没有可复用的订阅时，才去市场里挑。
+  if (!target) {
+    const candidates = feeds.filter((f) => !f.isSubscribed && f.feed?.url).slice(0, 12);
+    for (const cand of candidates) {
+      const attempt = await api("/api/feeds/subscriptions", {
+        method: "POST",
+        body: JSON.stringify({ url: cand.feed.url, isNotify: true }),
+      });
+      if (attempt.status === 200 && attempt.body?.success === true) {
+        target = cand;
+        url = cand.feed.url;
+        record(
+          "A-01",
+          `订阅 ${cand.feed?.title}`,
+          true,
+          `status=${attempt.status} msg=${attempt.body?.message || ""}`
+        );
+        break;
+      }
     }
   }
 
   if (!target) {
-    record(
-      "A-01",
-      "从市场订阅",
-      false,
-      `${candidates.length} 个候选源全部订阅失败（网络或源本身不可用）`
-    );
+    record("A-01", "从市场订阅", false, "本地无可复用订阅，且市场候选源全部不可达");
     return;
   }
-
-  const url = target.feed?.url;
-  record(
-    "A-01",
-    `订阅 ${target.feed?.title}`,
-    true,
-    `status=${sub.status} msg=${sub.body?.message || ""}`
-  );
+  // A-01 已经在上面两条路径里各自 record 过了，这里不再重复记。
 
   // 重复订阅
   const dup = await api("/api/feeds/subscriptions", {
@@ -801,6 +826,7 @@ async function testPasswordReset() {
     weak.status === 400 && /至少|字母|数字/.test(weak.body.message || ""),
     `HTTP ${weak.status} ${weak.body.message || ""}`
   );
+
 }
 
 async function testNotificationsAndPrefs() {
@@ -1019,6 +1045,168 @@ async function testTags() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// V. 服务端健壮性（空 body / 坏 JSON / 分页越界）
+// ---------------------------------------------------------------------------
+// 这一组是回归测试：这些问题在真实使用里都会出现——
+// 前端少传一个字段、请求被中间层截断、手改 URL 试试看。
+// 共同要求是「返回 4xx 并说明原因」，不能是 500「操作失败」。
+async function testRobustness() {
+  section("V. 服务端健壮性");
+
+  // 空 body / 空字符串 / 坏 JSON 三种，全部应 4xx
+  const bodyCases = [
+    ["POST", "/api/groups", "创建分组"],
+    ["POST", "/api/favorites", "收藏文章"],
+    ["POST", "/api/history", "记录历史"],
+    ["POST", "/api/articles", "按源取文章"],
+    ["POST", "/api/subscriptions", "订阅（旧接口）"],
+    ["POST", "/api/feeds/validate", "校验 RSS 地址"],
+    ["POST", "/api/sync", "触发同步"],
+    ["PATCH", "/api/notifications", "标记通知"],
+  ];
+
+  let worst = 0;
+  let worstPath = "";
+  for (const [method, path] of bodyCases) {
+    for (const body of [undefined, "", "{bad json"]) {
+      const r = await api(path, { method, body });
+      if (r.status >= 500 && r.status !== 503) {
+        worst = r.status;
+        worstPath = `${method} ${path}`;
+      }
+    }
+  }
+  record(
+    "V-01",
+    "空 body / 坏 JSON 返回 4xx 而不是 500",
+    worst === 0,
+    worst === 0 ? `${bodyCases.length} 个接口 × 3 种畸形请求全部 4xx` : `${worstPath} -> ${worst}`
+  );
+
+  // 分页参数夹紧
+  const limits = [
+    ["/api/history", "limit"],
+    ["/api/favorites", "limit"],
+    ["/api/notifications", "limit"],
+    ["/api/articles", "pageSize"],
+  ];
+  let clampOk = true;
+  const clampDetail = [];
+  for (const [path, key] of limits) {
+    const huge = await api(`${path}?${key}=999999`);
+    const pag = huge.body?.pagination || huge.body?.data?.pagination || {};
+    const effective = pag[key] ?? pag.pageSize;
+    if (effective !== 100) {
+      clampOk = false;
+      clampDetail.push(`${path} ${key}=999999 -> ${effective}`);
+    }
+  }
+  record(
+    "V-02",
+    "超大分页参数被夹到 100",
+    clampOk,
+    clampOk ? "4 个接口均夹到 100" : clampDetail.join("; ")
+  );
+
+  // limit=0 应夹到 1（而不是返回空页让人以为没数据）
+  const zero = await api("/api/history?limit=0");
+  const zeroLimit = zero.body?.pagination?.limit;
+  record(
+    "V-03",
+    "limit=0 夹到 1",
+    zeroLimit === 1,
+    `limit=${zeroLimit}`
+  );
+
+  // 收藏搜索（SQLite 不支持 mode:"insensitive"，曾整条接口 500）
+  const favSearch = await api("/api/favorites?search=React");
+  record(
+    "V-04",
+    "收藏搜索可用",
+    favSearch.status === 200,
+    `status=${favSearch.status}`
+  );
+
+  // 市场订阅数是真实统计值，不是只在增量里的计数器
+  const market = await api("/api/market?limit=1000");
+  const feeds = market.body?.data || [];
+  const groups = await api("/api/feeds/subscriptions");
+  const mySubs = Object.values(groups.body?.data?.groups || {}).flatMap(
+    (g) => g.subscriptions || []
+  );
+  let mismatch = null;
+  for (const sub of mySubs) {
+    const row = feeds.find((f) => f.feed?.id === sub.feedId);
+    if (row && row.subscriberCount < 1) {
+      mismatch = `${row.feed?.title} subscriberCount=${row.subscriberCount}`;
+      break;
+    }
+  }
+  record(
+    "V-05",
+    "市场订阅数与实际订阅一致",
+    mismatch === null,
+    mismatch || `核对 ${mySubs.length} 个已订阅源`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// M-05/M-06 密码策略（独立成组：没配 SMTP 时 testPasswordReset 会提前 return）
+// ---------------------------------------------------------------------------
+async function testPasswordPolicy() {
+  section("M. 密码策略");
+
+  // 注册侧的策略必须与重置侧一致。
+  // 之前注册只要 6 位，会出现「被强制重置成强密码后又注册一个纯数字」。
+  const regCases = [
+    ["123456", false, "6 位纯数字"],
+    ["abcdef", false, "6 位纯字母"],
+    ["abcdefgh", false, "8 位无数字"],
+    ["12345678", false, "8 位无字母"],
+    ["Str0ngPass2026", true, "合法强密码"],
+  ];
+  let policyOk = true;
+  const policyDetail = [];
+  for (const [pw, shouldPass, label] of regCases) {
+    const r = await api("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        email: `pwpolicy${Date.now()}${Math.random().toString(36).slice(2, 6)}@example.invalid`,
+        password: pw,
+        nickname: "策略测试",
+      }),
+    });
+    const passed = r.status === 200;
+    if (passed !== shouldPass) {
+      policyOk = false;
+      policyDetail.push(`${label} -> ${r.status}`);
+    }
+  }
+  record(
+    "M-05",
+    "注册密码策略与重置一致",
+    policyOk,
+    policyOk ? "5 组都符合预期" : policyDetail.join("; ")
+  );
+
+  // 老账号（策略收紧前注册的 6 位密码）必须仍能登录，
+  // 否则收紧密码策略等于把用户锁在门外。
+  const legacy = await api("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+  });
+  record(
+    "M-06",
+    "策略收紧后老账号仍可登录",
+    legacy.status === 200,
+    `HTTP ${legacy.status}`
+  );
+
+  // 上面那次登录会刷新 cookie，重新确认登录态即可
+  await login();
+}
+
 async function main() {
   console.log(`\n\x1b[1mWeRSS 端到端验收\x1b[0m  ${BASE}\n`);
 
@@ -1041,6 +1229,8 @@ async function main() {
     await testTags();
     await testNotificationsAndPrefs();
     await testPasswordReset();
+    await testPasswordPolicy();
+    await testRobustness();
   } catch (error) {
     console.error("\n\x1b[31m执行中断：\x1b[0m", error);
     process.exit(1);

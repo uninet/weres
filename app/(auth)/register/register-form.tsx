@@ -21,18 +21,23 @@ const validateNickname = (nickname: string): string => {
   return "";
 };
 
+// 这里的规则要与 /api/auth/register 完全一致，否则会出现
+// 「前端放行、后端拒绝」或者反过来的情况，用户只会看到一句笼统的
+// 「输入数据无效」。后端硬要求是 8–72 位且同时含字母和数字；
+// 强度条（strength）只用来给视觉反馈，不当作拦截条件 ——
+// 一个 30 位的纯小写+数字密码强度条显示两格，但它完全合法。
 const validatePassword = (password: string): { error: string; strength: number } => {
   if (!password) return { error: "请输入密码", strength: 0 };
-  if (password.length < 8) return { error: "密码至少需要8位", strength: 1 };
-  if (password.length > 20) return { error: "密码不能超过20位", strength: 1 };
+  if (password.length < 8) return { error: "密码至少 8 位", strength: 1 };
+  if (password.length > 72) return { error: "密码最多 72 位", strength: 1 };
+  if (!/[A-Za-z]/.test(password)) return { error: "密码需要包含字母", strength: 1 };
+  if (!/\d/.test(password)) return { error: "密码需要包含数字", strength: 1 };
 
   let strength = 1;
   if (/[a-z]/.test(password)) strength++;
   if (/[A-Z]/.test(password)) strength++;
   if (/\d/.test(password)) strength++;
   if (/[^a-zA-Z0-9]/.test(password)) strength++;
-
-  if (strength < 3) return { error: "密码需包含大小写字母、数字或特殊字符", strength };
 
   return { error: "", strength };
 };
