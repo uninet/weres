@@ -456,6 +456,98 @@ async function main() {
     `点击前 ${dotsBefore} → 点击后 ${dotsAfter}`
   );
 
+  // ---------------- 响应式布局（R 组） ----------------
+  // 桌面三栏，小屏三级页面（侧栏 → 列表 → 正文）。
+  // 小屏最怕「点了没反应」，所以既查不溢出，也查点完源之后正文别抢走屏幕。
+  const visibleCount = (p, sel) =>
+    p.evaluate(
+      (q) =>
+        Array.from(document.querySelectorAll(q)).filter((e) => {
+          const r = e.getBoundingClientRect();
+          return r.width > 4 && r.height > 4;
+        }).length,
+      sel
+    );
+
+  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await mobile.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  await mobile.fill('input[type="email"]', EMAIL);
+  await mobile.fill('input[type="password"]', PASSWORD);
+  await mobile.click('button[type="submit"]');
+  await mobile.waitForTimeout(3200);
+  await mobile.goto(`${BASE}/reader`, { waitUntil: "networkidle" });
+  await mobile.waitForTimeout(2600);
+
+  record(
+    "R-05",
+    "移动端无横向溢出",
+    !(await mobile.evaluate(() => document.body.scrollWidth > window.innerWidth + 2)),
+    `scrollWidth=${await mobile.evaluate(() => document.body.scrollWidth)}`
+  );
+  record("R-06", "移动端首屏只显示侧栏", (await visibleCount(mobile, "button.w-full.text-left")) === 0);
+  record(
+    "R-07",
+    "移动端不显示桌面折叠按钮",
+    (await visibleCount(mobile, 'button[aria-label="折叠列表"], button[aria-label="展开列表"]')) === 0
+  );
+
+  const feedEntry = mobile.locator("text=运营派").first();
+  if ((await feedEntry.count()) > 0) {
+    await feedEntry.click();
+    await mobile.waitForTimeout(2400);
+
+    const listVisible = await visibleCount(mobile, "button.w-full.text-left");
+    const hasArticle = await mobile.evaluate(() => document.querySelector("article") !== null);
+    record("R-08", "移动端点源后停在列表（不自动进正文）", listVisible > 0 && !hasArticle, `${listVisible} 条`);
+
+    if (listVisible > 0) {
+      await mobile.locator("button.w-full.text-left").first().click();
+      await mobile.waitForTimeout(2000);
+      record(
+        "R-09",
+        "移动端点文章进入正文",
+        await mobile.evaluate(() => document.querySelector("article") !== null)
+      );
+
+      const backBtn = mobile.locator('button[aria-label="返回列表"]').first();
+      if ((await backBtn.count()) > 0) {
+        await backBtn.click();
+        await mobile.waitForTimeout(1600);
+        record(
+          "R-10",
+          "移动端返回列表后正文让位",
+          await mobile.evaluate(() => document.querySelector("article") === null)
+        );
+      } else {
+        record("R-10", "移动端有返回列表按钮", false, "没找到");
+      }
+    }
+  } else {
+    record("R-08", "移动端左栏有订阅源可点", false, "没找到「运营派」");
+  }
+  await mobile.close();
+
+  // 桌面宽度单独再验一次（移动端 page 改了视口，桌面判断要用新 page）
+  const desktop = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  await desktop.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  await desktop.fill('input[type="email"]', EMAIL);
+  await desktop.fill('input[type="password"]', PASSWORD);
+  await desktop.click('button[type="submit"]');
+  await desktop.waitForTimeout(3000);
+  await desktop.goto(`${BASE}/reader`, { waitUntil: "networkidle" });
+  await desktop.waitForTimeout(2500);
+  const artW = await desktop.evaluate(
+    () => Math.round(document.querySelector("article")?.getBoundingClientRect().width ?? 0)
+  );
+  record("R-01", "桌面正文宽度 > 800px", artW > 800, `article=${artW}px`);
+  record(
+    "R-02",
+    "桌面无横向溢出",
+    !(await desktop.evaluate(() => document.body.scrollWidth > window.innerWidth + 2))
+  );
+  record("R-03", "桌面三栏齐全", (await visibleCount(desktop, "button.w-full.text-left")) > 0);
+  await desktop.close();
+
   // 恢复默认，避免影响下次运行
   await page.evaluate((key) => localStorage.removeItem(key), prefKey);
 

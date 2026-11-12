@@ -53,6 +53,8 @@ interface ArticleContentProps {
   isGuest: boolean;
   onToggleImmersive: () => void;
   onToggleFeedList: () => void;
+  /** 小屏上从正文返回列表（桌面走折叠按钮，不需要这个）。 */
+  onBackToList?: () => void;
   onToggleDarkMode: () => void;
   onPrevArticle: () => void;
   onNextArticle: () => void;
@@ -99,6 +101,7 @@ export function ArticleContent({
   isGuest,
   onToggleImmersive,
   onToggleFeedList,
+  onBackToList,
   onToggleDarkMode,
   onPrevArticle,
   onNextArticle,
@@ -193,16 +196,29 @@ export function ArticleContent({
       <div className="h-12 border-b border-[#e0e0e0] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1e] flex items-center justify-between px-3 shrink-0">
         <div className="flex items-center gap-1">
           {/* Collapse Feed List Button (mobile/tablet) */}
+          {/* 小屏：回到文章列表；md 以上：折叠/展开列表栏 */}
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 rounded-lg lg:hidden text-[#666] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:bg-[#2a2a2a]"
+            className="h-9 w-9 rounded-lg text-[#666] transition-all duration-150 hover:bg-black/[0.05] active:scale-90 dark:text-[#999] dark:hover:bg-white/[0.08] md:hidden"
+            onClick={onBackToList ?? onToggleFeedList}
+            title="返回列表"
+            aria-label="返回列表"
+          >
+            <ChevronLeft className="h-[18px] w-[18px]" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden h-9 w-9 rounded-lg text-[#666] transition-all duration-150 hover:bg-black/[0.05] active:scale-90 dark:text-[#999] dark:hover:bg-white/[0.08] md:inline-flex"
             onClick={onToggleFeedList}
+            title={feedListCollapsed ? "展开列表" : "折叠列表"}
+            aria-label={feedListCollapsed ? "展开列表" : "折叠列表"}
           >
             {feedListCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-[18px] w-[18px]" />
             ) : (
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-[18px] w-[18px]" />
             )}
           </Button>
 

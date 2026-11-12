@@ -26,6 +26,9 @@ export default function ReaderPage() {
   // UI 状态
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  // 用户在小屏上主动「返回列表」后，不要再自动选中第一篇。
+  // 否则清空 selection 的下一帧就被 useEffect 填回去，按钮看起来没反应。
+  const [listOnly, setListOnly] = useState(false);
   const [activeNav, setActiveNav] = useState<ArticleFilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -136,14 +139,19 @@ export default function ReaderPage() {
 
   // 自动选中第一篇文章
   useEffect(() => {
+    if (listOnly) return;
+    // 小屏不自动选中：三栏变成三级页面后，自动进正文会让用户
+    // 点完源瞬间看不见列表，以为「点了没反应」。
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return;
     if (articles.length > 0 && !selectedArticle) {
       setSelectedArticle(articles[0]);
     }
-  }, [articles, selectedArticle]);
+  }, [articles, selectedArticle, listOnly]);
 
   // 处理文章选择
   const handleSelectArticle = useCallback(
     async (article: Article) => {
+      setListOnly(false);
       setArticleLoading(true);
       setSelectedArticle(article);
 
@@ -387,9 +395,22 @@ export default function ReaderPage() {
           )}
 
           {/* Main Content */}
+          {/*
+            小屏（< md）一次只显示一栏：侧栏 / 列表 / 正文。
+            三栏并排在 390px 上会把正文挤到 0 宽 —— 实测过，
+            正文只剩 295px 且列表标题全被截断。
+            md 及以上恢复三栏并排。
+          */}
           <div className="flex-1 flex overflow-hidden">
             {/* Left Sidebar */}
             {!isImmersiveMode && (
+              <div
+                className={cn(
+                  "shrink-0 md:block",
+                  // 小屏：没选源时显示侧栏，选了源就藏起来让位给列表
+                  selectedFeed || searchQuery ? "hidden" : "block w-full md:w-auto"
+                )}
+              >
               <Sidebar
                 groups={groups}
                 selectedFeed={selectedFeed}
@@ -401,10 +422,19 @@ export default function ReaderPage() {
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
                 onRefreshFeed={handleRefreshFeed}
               />
+              </div>
             )}
 
             {/* Article List */}
             {!isImmersiveMode && (
+              <div
+                className={cn(
+                  "shrink-0 md:block",
+                  // 小屏：选了源才显示列表，且没有选中文章时占满整宽
+                  selectedFeed || searchQuery ? "block w-full md:w-auto" : "hidden md:block",
+                  selectedArticle && "hidden md:block"
+                )}
+              >
               <ArticleList
                 articles={articles}
                 selectedArticle={selectedArticle}
@@ -422,6 +452,7 @@ export default function ReaderPage() {
                 }
                 compactView={preferences.compactView}
               />
+              </div>
             )}
 
             {/* Article Content */}
@@ -440,6 +471,10 @@ export default function ReaderPage() {
               isGuest={isGuest}
               onToggleImmersive={() => setIsImmersiveMode(!isImmersiveMode)}
               onToggleFeedList={() => setFeedListCollapsed(!feedListCollapsed)}
+              onBackToList={() => {
+                setListOnly(true);
+                setSelectedArticle(null);
+              }}
               onToggleDarkMode={toggleDarkMode}
               onPrevArticle={handlePrevArticle}
               onNextArticle={handleNextArticle}

@@ -86,7 +86,10 @@ export function ArticleList({
     <div
       className={cn(
         "bg-white dark:bg-[#1c1c1e] flex flex-col border-r border-[#e0e0e0] dark:border-[#2a2a2a] transition-all duration-300",
-        feedListCollapsed ? "w-0 overflow-hidden opacity-0" : "w-[26rem] opacity-100"
+        // 小屏：列表占满整宽；md 起固定 26rem，可折叠
+        feedListCollapsed
+          ? "w-0 overflow-hidden opacity-0"
+          : "w-full md:w-[26rem] opacity-100"
       )}
     >
       {/* Header */}

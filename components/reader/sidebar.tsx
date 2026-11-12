@@ -56,8 +56,11 @@ export function Sidebar({
   return (
     <div
       className={cn(
+        // 小屏上侧栏占满整宽（由 page 用覆盖层控制显隐）；
+        // 从 md 起才回到「可折叠的固定窄栏」。
         "bg-[#f5f5f5] dark:bg-[#1a1a1a] border-r border-[#e0e0e0] dark:border-[#2a2a2a] flex flex-col transition-all duration-300 ease-in-out",
-        sidebarCollapsed ? "w-16" : "w-64"
+        "w-full md:w-auto",
+        sidebarCollapsed ? "md:w-16" : "md:w-64"
       )}
     >
       {/* Header */}
