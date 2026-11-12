@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useScrollToRead } from "@/hooks/use-scroll-to-read";
 import { useTextToSpeech, htmlToSpeakableText } from "@/hooks/use-text-to-speech";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ import {
   contentWidthOptions,
 } from "@/lib/reader-config";
 import { ReaderMoreMenu } from "@/components/reader/reader-more-menu";
-import { pageScroll, scrollReaderTo } from "@/lib/reader-paging";
+import { pageScroll, scrollReaderTo, findScrollViewport } from "@/lib/reader-paging";
 import type { ReaderThemeId } from "@/hooks/use-reader-theme";
 import type { Article } from "@/types/reader";
 
@@ -128,6 +128,23 @@ export function ArticleContent({
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 工具栏是否可见。
+  //
+  // 工具栏改成悬浮层后，如果一直显示，它盖住的正是正文第一行——
+  // 等于把刚腾出来的空间又还回去了。所以让它在顶部完整显示，
+  // 一开始滚动就淡出；鼠标移回顶部再淡入。
+  // （触屏没有 hover，靠 scrollTop 判定：滚回顶部就重新显示。）
+  const [showToolbar, setShowToolbar] = useState(true);
+
+  useEffect(() => {
+    const viewport = findScrollViewport(scrollRef.current);
+    if (!viewport) return;
+    const handleScroll = () => setShowToolbar(viewport.scrollTop < 24);
+    handleScroll();
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, [article?.id]);
+
   // 文本转语音：浏览器内置 Web Speech API，不需要任何外部服务
   const tts = useTextToSpeech();
 
@@ -188,12 +205,24 @@ export function ArticleContent({
     <div
       ref={contentRef}
       className={cn(
-        "reader-surface flex-1 flex flex-col bg-[#fafafa] dark:bg-[#0d0d0d] overflow-hidden transition-all duration-300",
+        "reader-surface relative flex-1 flex flex-col bg-[#fafafa] dark:bg-[#0d0d0d] overflow-hidden transition-all duration-300",
         isImmersiveMode && "fixed inset-0 z-[100]"
       )}
     >
-      {/* Toolbar */}
-      <div className="h-12 border-b border-[#e0e0e0] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1e] flex items-center justify-between px-3 shrink-0">
+      {/* Toolbar —— 悬浮在正文之上，不再占一整行。
+          原来它是 h-12 的实体行，等于在正文顶部白扣掉 48px；
+          改成绝对定位后正文从画面最上沿开始，工具栏浮在上面。 */}
+      <div
+        className={cn(
+          "absolute top-0 left-0 right-0 z-20 h-12",
+          "flex items-center justify-between px-3",
+          "border-b border-black/[0.06] dark:border-white/[0.06]",
+          "bg-gradient-to-b from-white/95 via-white/85 to-white/0",
+          "dark:from-[#1c1c1e]/95 dark:via-[#1c1c1e]/85 dark:to-transparent",
+          "transition-opacity duration-300",
+          showToolbar ? "opacity-100" : "pointer-events-none opacity-0"
+        )}
+      >
         <div className="flex items-center gap-1">
           {/* Collapse Feed List Button (mobile/tablet) */}
           {/* 小屏：回到文章列表；md 以上：折叠/展开列表栏 */}
@@ -254,9 +283,6 @@ export function ArticleContent({
             </TooltipTrigger>
             <TooltipContent>下一篇</TooltipContent>
           </Tooltip>
-          <span className="text-xs text-[#999] ml-2 font-medium">
-            {currentIndex + 1} / {articles.length}
-          </span>
         </div>
 
         <div className="flex items-center gap-0.5">
@@ -381,7 +407,7 @@ export function ArticleContent({
         {loading ? (
           <div
             className={cn(
-              "mx-auto w-full px-4 sm:px-8 lg:px-12 py-10 space-y-6",
+              "mx-auto w-full px-4 sm:px-8 lg:px-12 pt-14 pb-10 space-y-6",
               getContentWidthClass(contentWidth)
             )}
           >
@@ -425,7 +451,9 @@ export function ArticleContent({
           <article
             key={article.id}
             className={cn(
-              "mx-auto w-full px-4 sm:px-8 lg:px-12 pt-6 pb-16",
+              // 顶部 padding 给悬浮工具栏让位：工具栏 h-12 叠在正文之上，
+              // 这里要留够高度让它不压住标题，但也不能留成一条空白横带。
+              "mx-auto w-full px-4 sm:px-8 lg:px-12 pt-14 pb-16",
               "animate-content-in",
               getContentWidthClass(contentWidth),
               getFontSizeClass(fontSize),
@@ -577,6 +605,22 @@ export function ArticleContent({
           </article>
         )}
       </ScrollArea>
+
+      {/* 阅读进度胶囊：从工具栏那一行挪出来了。
+          原来它和翻页按钮挤在同一条 h-12 的横条上，为了显示「3 / 50」
+          白占掉正文顶部一整行。现在浮在右下角，滚到顶时不显示
+          （那时工具栏可见，位置信息已经在工具栏里），一滚动就出现。 */}
+      <div
+        className={cn(
+          "pointer-events-none absolute bottom-3 right-4 z-20",
+          "transition-opacity duration-300",
+          showToolbar ? "opacity-0" : "opacity-100"
+        )}
+      >
+        <span className="rounded-full bg-black/[0.55] px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm dark:bg-white/[0.16]">
+          {currentIndex + 1} / {articles.length}
+        </span>
+      </div>
     </div>
   );
 }

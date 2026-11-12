@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WeRSS 正文字体与版式对照</title>
+<style>
+  :root {
+    --bg: #f8f6f3;
+    --panel: #ffffff;
+    --fg: #2a2a2a;
+    --fg-muted: #8a8a8a;
+    --border: #e5e1db;
+    --accent: #007aff;
+    --page: 1120px;   /* 当前默认档 max-w-[70rem] */
+    --measure: 714px; /* 实测段落宽度 */
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- 页面骨架 ---------- */
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 40px 32px 96px; }
+
+  header.top { margin-bottom: 40px; }
+  header.top h1 { font-size: 26px; margin: 0 0 10px; letter-spacing: -0.01em; }
+  header.top p { margin: 0; color: #6b6b6b; font-size: 14px; line-height: 1.7; max-width: 720px; }
+
+  /* ---------- 数据卡片 ---------- */
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 28px 0 44px;
+  }
+  .fact {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .fact .k { font-size: 11px; color: var(--fg-muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .fact .v { font-size: 20px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .fact .n { font-size: 11px; color: var(--fg-muted); margin-top: 4px; }
+
+  /* ---------- 对照区 ---------- */
+  .section-title {
+    font-size: 13px; font-weight: 700; letter-spacing: 0.08em;
+    color: #9a9a9a; text-transform: uppercase;
+    margin: 56px 0 18px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .switcher { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .switcher button {
+    font: inherit; font-size: 13px;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--fg);
+    transition: all .16s ease;
+  }
+  .switcher button:hover { border-color: #c9c4bc; }
+  .switcher button.on {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(0, 122, 255, .25);
+  }
+
+  /* ---------- 模拟的三栏阅读器 ---------- */
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,.06);
+  }
+  .chrome {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 44px; padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--fg-muted);
+    background: #fcfbf9;
+  }
+  .chrome .left { display: flex; align-items: center; gap: 12px; }
+  .chrome .dot { width: 22px; height: 22px; border-radius: 6px; background: #ecebe8; }
+  .chrome .right { display: flex; gap: 10px; }
+  .chrome .right span { width: 20px; height: 20px; border-radius: 5px; background: #ecebe8; }
+
+  .cols { display: grid; grid-template-columns: 200px 320px 1fr; min-height: 520px; }
+  .col-side { border-right: 1px solid var(--border); padding: 14px 12px; background: #fcfbf9; }
+  .col-list { border-right: 1px solid var(--border); overflow: hidden; }
+  .col-read { overflow: hidden; }
+
+  .side-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; border-radius: 6px; font-size: 13px; color: #4a4a4a;
+    margin-bottom: 2px;
+  }
+  .side-item .ic { width: 15px; height: 15px; border-radius: 4px; background: #ddd; flex: 0 0 auto; }
+  .side-item.on { background: #eef4ff; color: var(--accent); font-weight: 600; }
+  .side-label { font-size: 10px; color: #aaa; letter-spacing: .08em; margin: 16px 8px 6px; }
+
+  .list-item { padding: 12px 14px; border-bottom: 1px solid #f0eeea; }
+  .list-item.on { background: #f0f6ff; border-left: 3px solid var(--accent); }
+  .list-item .src { font-size: 11px; color: #9a9a9a; }
+  .list-item .t { font-size: 13px; font-weight: 600; line-height: 1.45; margin: 3px 0 0; }
+
+  /* ---------- 正文（这是要对照的主体） ---------- */
+  .reader {
+    height: 100%;
+    overflow: hidden;
+  }
+  .page {
+    margin: 0 auto;
+    width: 100%;
+    max-width: var(--page);
+    padding: 32px 48px 56px;
+  }
+
+  .art-head { margin-bottom: 22px; }
+  .art-meta-top { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .badge {
+    font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    background: #eef4ff; color: var(--accent); font-weight: 600;
+  }
+  .badge.read { background: #f0f0f0; color: #999; }
+  .art-h1 {
+    font-size: 2.1rem; line-height: 1.25; font-weight: 700;
+    margin: 0 0 14px; letter-spacing: -0.015em;
+  }
+  .art-byline { font-size: 12px; color: #9a9a9a; display: flex; gap: 10px; }
+  .rule { width: 44px; height: 2px; background: var(--accent); margin: 20px 0 26px; }
+
+  /* 正文容器：所有排版变量都在这里 */
+  .body-text {
+    -webkit-font-smoothing: antialiased;
+    font-family: var(--font, "Songti SC", "SimSun", serif);
+    font-size: var(--fs, 17px);
+    line-height: var(--lh, 1.8);
+    color: var(--fg, #2a2a2a);
+    text-align: var(--align, justify);
+    letter-spacing: var(--ls, 0);
+  }
+  .body-text p { margin: 0 0 1.5em; }
+  .body-text p:last-child { margin-bottom: 0; }
+  .body-text h2 {
+    font-size: calc(var(--fs, 17px) * 1.45);
+    line-height: 1.4; margin: 2.2rem 0 1rem;
+    padding-bottom: 0.4rem; border-bottom: 2px solid #e8e4df;
+  }
+  .body-text blockquote {
+    margin: 1.6em 0; padding: 2px 0 2px 20px;
+    border-left: 3px solid #d8d3cb; color: #5a5a5a;
+  }
+  .body-text blockquote p { margin-bottom: 0; }
+  .body-text img {
+    width: 100%; height: auto; border-radius: 8px; display: block; margin: 1.6em 0;
+  }
+  .body-text .caption { font-size: 12px; color: #9a9a9a; text-align: center; margin-top: -1em; }
+
+  /* ---------- 参数读数条 ---------- */
+  .readout {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1px; background: var(--border); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; margin-top: 14px;
+  }
+  .readout div { background: var(--panel); padding: 11px 14px; }
+  .readout .k { font-size: 10px; color: var(--fg-muted); letter-spacing: .05em; text-transform: uppercase; }
+  .readout .v { font-size: 14px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- 方案对比（并排三张） ---------- */
+  .variants { display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 8px; }
+  .variant {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .variant-head {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border); background: #fcfbf9;
+  }
+  .variant-head .name { font-size: 14px; font-weight: 700; }
+  .variant-head .desc { font-size: 12px; color: #8a8a8a; }
+  .variant-head .tag {
+    margin-left: auto; font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    background: #eef4ff; color: var(--accent); font-weight: 600;
+  }
+  .variant-body { padding: 26px 32px 32px; }
+  .variant-body .measure-wrap { margin: 0 auto; width: 100%; }
+
+  .note {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
+    padding: 14px 18px; font-size: 13px; line-height: 1.75; color: #78560c;
+    margin: 22px 0;
+  }
+  .note b { color: #5c420a; }
+
+  .hint { font-size: 12px; color: #9a9a9a; margin-top: 10px; line-height: 1.7; }
+
+  @media (max-width: 1080px) {
+    .cols { grid-template-columns: 1fr; }
+    .col-side, .col-list { display: none; }
+    .page { padding: 24px 20px 40px; }
+    .art-h1 { font-size: 1.5rem; }
+    .wrap { padding: 24px 16px 64px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>正文字体与版式对照</h1>
+    <p>
+      这是我在 1600×1000 窗口下实测到的一组参数。上半部分可以实时切换各档位，
+      下半部分并列三个候选方案——差别集中在<strong>字体族</strong>、<strong>对齐方式</strong>
+      和<strong>行长</strong>三点上，其余都已经是当前实现。
+    </p>
+  </header>
+
+  <div class="facts">
+    <div class="fact"><div class="k">窗口宽</div><div class="v">1600px</div><div class="n">1600×1000 实测环境</div></div>
+    <div class="fact"><div class="k">正文容器</div><div class="v">928px</div><div class="n">&lt;article&gt; 实际宽度</div></div>
+    <div class="fact"><div class="k">内容区</div><div class="v">832px</div><div class="n">扣掉左右各 48px padding</div></div>
+    <div class="fact"><div class="k">段落实测</div><div class="v">714px</div><div class="n">占内容区 86%</div></div>
+    <div class="fact"><div class="k">首屏正文起点</div><div class="v">294px</div><div class="n">从窗口顶部算起</div></div>
+  </div>
+
+  <div class="note">
+    <b>已经做完的三件事：</b>
+    ① 原文自带的 <code>max-width: 680px</code> 居中窄栏被解除，段落从 600px 恢复到 714px；
+    ② 原文重复一遍的标题被剥掉；
+    ③ 列表接口不再返回全文，一页 50 条从 2–3MB 降到 38KB。
+    <br>
+    下面要你判断的是<b>还没动的部分</b>：段落用衬线还是无衬线、两端对齐还是左对齐、行宽再放宽多少。
+  </div>
+
+  <!-- ============ 可切换预览 ============ -->
+  <div class="section-title">一、当前实现（可实时切换档位）</div>
+
+  <div class="switcher" id="sw-font">
+    <button data-font='var(--f-serif)' class="on">宋体（当前默认）</button>
+    <button data-font='var(--f-system)'>系统无衬线</button>
+    <button data-font='var(--f-kai)'>楷体</button>
+  </div>
+
+  <div class="switcher" id="sw-align">
+    <button data-align="justify" class="on">两端对齐（当前）</button>
+    <button data-align="start">左对齐</button>
+  </div>
+
+  <div class="switcher" id="sw-size">
+    <button data-fs="15px">小 15px</button>
+    <button data-fs="17px" class="on">中 17px（当前）</button>
+    <button data-fs="19px">大 19px</button>
+    <button data-fs="21px">特大 21px</button>
+  </div>
+
+  <div class="switcher" id="sw-width">
+    <button data-page="832px" data-measure="736px">窄 832px</button>
+    <button data-page="1120px" data-measure="714px" class="on">中 1120px（当前默认档）</button>
+    <button data-page="100%" data-measure="auto">宽 无上限</button>
+  </div>
+
+  <div class="stage">
+    <div class="chrome">
+      <div class="left"><div class="dot"></div><span>1 / 50</span></div>
+      <div class="right"><span></span><span></span><span></span></div>
+    </div>
+    <div class="cols">
+      <div class="col-side">
+        <div class="side-item on"><div class="ic"></div>全部</div>
+        <div class="side-item"><div class="ic"></div>稍后阅读</div>
+        <div class="side-item"><div class="ic"></div>未读</div>
+        <div class="side-label">FEEDS</div>
+        <div class="side-item"><div class="ic"></div>少数派</div>
+        <div class="side-item"><div class="ic"></div>阮一峰</div>
+        <div class="side-item"><div class="ic"></div>36氪</div>
+      </div>
+      <div class="col-list">
+        <div class="list-item on"><div class="src">大家优选 · 2小时前</div><div class="t">创造者日报 · 第 68 期 · 2026-11-12</div></div>
+        <div class="list-item"><div class="src">少数派 · 3小时前</div><div class="t">我用三个月把手机变成了一个阅读器</div></div>
+        <div class="list-item"><div class="src">阮一峰 · 5小时前</div><div class="t">科技爱好者周刊（第 331 期）</div></div>
+      </div>
+      <div class="col-read">
+        <div class="reader">
+          <div class="page" id="page">
+            <div class="art-head">
+              <div class="art-meta-top">
+                <span class="badge">大家优选</span>
+                <span class="badge read">已读</span>
+              </div>
+              <h2 class="art-h1">创造者日报 · 第 68 期 · 2026-11-12</h2>
+              <div class="art-byline"><span>进步分子</span><span>2 小时前</span></div>
+            </div>
+            <div class="rule"></div>
+            <div class="body-text" id="body">
+              <p>今天最该读的是第 5 条，合规 SaaS 月入 10 万美元那条。SOC2 认证听着枯燥，但它是少数需求刚性、付费意愿强、还没被卷死的 B2B 缝隙，比第 6 条 Postiz 那种 44 万美元的成熟生意更值得普通人切入。整体看，今天 28 条里工具类偏少，项目类扎堆，且多数靠 AI 降本而非创新——机会在把 AI 塞进传统流程，不在造新轮子。</p>
+              <p>这背后其实是一个很朴素的判断：当一个能力从稀缺变成白菜价，赚钱的位置就从"拥有能力"转移到"知道该用它解决谁的什么问题"。过去两年 AI 写作、AI 绘图、AI 编程轮番走完这条曲线，现在轮到 AI 客服和 AI 数据分析。</p>
+              <blockquote><p>真正的护城河不是模型，而是你比同行更早地知道哪些活值得交给模型，哪些活交出去就是灾难。</p></blockquote>
+              <h2>本周最强信号</h2>
+              <p>拉美工程师借 Claude 认证切入美国 AI 服务市场。HackerNoon 报道指出，该领域岗位增 31%，84% 属中高级岗，雇主成本省 30–70%（B 级证据，源自原文引述第三方数据）。对技术者而言，这是赚美元的捷径，但纯调 AI 不够，跨境合规与收款才是门槛。</p>
+              <p>精益止损复盘：2500 次冷外联获客失败教训。某团队做内部工具产品化，靠邮件获客。1 个月发 2500 封，只回 95 条（回复率 3.8%，证据等级 B），因转化太低直接停手。原文没提具体收入，对想搞钱的人：冷外联成本高、反馈慢，不适合当主渠道。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="readout">
+    <div><div class="k">正文字号</div><div class="v" id="ro-fs">17px</div></div>
+    <div><div class="k">行高</div><div class="v" id="ro-lh">1.8 / 30.6px</div></div>
+    <div><div class="k">字体族</div><div class="v" id="ro-font">宋体</div></div>
+    <div><div class="k">对齐</div><div class="v" id="ro-align">两端对齐</div></div>
+    <div><div class="k">页宽</div><div class="v" id="ro-page">1120px</div></div>
+    <div><div class="k">每行约</div><div class="v" id="ro-cpl">42 字</div></div>
+  </div>
+
+  <!-- ============ 三个候选方案 ============ -->
+  <div class="section-title">二、三个候选方案（并排对比）</div>
+
+  <div class="variants">
+
+    <!-- 方案 A -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="name">A · 现状</span>
+        <span class="desc">宋体 / 两端对齐 / 1120px 页宽 / 17px</span>
+        <span class="tag">当前</span>
+      </div>
+      <div class="variant-body">
+        <div class="measure-wrap">
+          <div class="body-text" style="--f-serif:'Songti SC','SimSun',serif; font-family:var(--f-serif); font-size:17px; line-height:1.8; text-align:justify;">
+            <p>今天最该读的是第 5 条，合规 SaaS 月入 10 万美元那条。SOC2 认证听着枯燥，但它是少数需求刚性、付费意愿强、还没被卷死的 B2B 缝隙，比第 6 条 Postiz 那种 44 万美元的成熟生意更值得普通人切入。整体看，今天 28 条里工具类偏少，项目类扎堆。</p>
+            <p>真正的护城河不是模型，而是你比同行更早地知道哪些活值得交给模型，哪些活交出去就是灾难。这句话说起来轻飘，落到具体场景里却需要大量试错。</p>
+          </div>
+        </div>
+        <div class="hint">
+          中文书籍与长文的传统排法。两端对齐让右边缘整齐，但中文没有单词边界，
+          遇到长数字、英文术语或行末标点时，字距会被拉开成"疏密不均"的条纹。
+          细看第二段右边缘附近，"哪些活交出去"几个字之间明显比别处松。
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案 B -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="name">B · 对齐 QiReader</span>
+        <span class="desc">系统无衬线 / 左对齐 / 943px 窗格内 707px 行长 / 18px</span>
+        <span class="tag">竞品实测值</span>
+      </div>
+      <div class="variant-body">
+        <div class="measure-wrap" style="max-width:707px;">
+          <div class="body-text" style="--f-system:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif; font-family:var(--f-system); font-size:18px; line-height:1.8; text-align:start; letter-spacing:0.015em;">
+            <p>今天最该读的是第 5 条，合规 SaaS 月入 10 万美元那条。SOC2 认证听着枯燥，但它是少数需求刚性、付费意愿强、还没被卷死的 B2B 缝隙，比第 6 条 Postiz 那种 44 万美元的成熟生意更值得普通人切入。整体看，今天 28 条里工具类偏少，项目类扎堆。</p>
+            <p>真正的护城河不是模型，而是你比同行更早地知道哪些活值得交给模型，哪些活交出去就是灾难。这句话说起来轻飘，落到具体场景里却需要大量试错。</p>
+          </div>
+        </div>
+        <div class="hint">
+          这是我从 qi reader 的阅读器里量出来的实际值（段落 707px、18px、行高 1.8、
+          <code>text-align: start</code>、无衬线）。左对齐的代价是右边缘参差，
+          好处是每个字的间距恒定——中文屏幕上这一点比整齐的右边缘更能减少阅读疲劳。
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案 C -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="name">C · 折中</span>
+        <span class="desc">宋体 / 左对齐 / 1120px 页宽 / 18px</span>
+        <span class="tag">待定</span>
+      </div>
+      <div class="variant-body">
+        <div class="measure-wrap">
+          <div class="body-text" style="--f-serif:'Songti SC','SimSun',serif; font-family:var(--f-serif); font-size:18px; line-height:1.85; text-align:start;">
+            <p>今天最该读的是第 5 条，合规 SaaS 月入 10 万美元那条。SOC2 认证听着枯燥，但它是少数需求刚性、付费意愿强、还没被卷死的 B2B 缝隙，比第 6 条 Postiz 那种 44 万美元的成熟生意更值得普通人切入。整体看，今天 28 条里工具类偏少，项目类扎堆。</p>
+            <p>真正的护城河不是模型，而是你比同行更早地知道哪些活值得交给模型，哪些活交出去就是灾难。这句话说起来轻飘，落到具体场景里却需要大量试错。</p>
+          </div>
+        </div>
+        <div class="hint">
+          保留宋体的中文阅读质感（微信公众号、Kindle 中文都是衬线为主），
+          只把两端对齐改成左对齐、行高从 1.8 提到 1.85。改动最小，
+          不改变你现在的观感基调。
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-title">三、我判断的三个可调项</div>
+
+  <div class="note">
+    <b>① 字体族</b>——当前默认是宋体（<code>Songti SC / SimSun</code>）。qi reader 用的是系统无衬线。
+    衬线在中文里读长文更"像读书"，但 17px 下宋体的笔画偏细，在非高分屏上容易糊；
+    无衬线在屏幕上更锐利，代价是少了点气质。
+    <br><br>
+    <b>② 对齐方式</b>——当前是 <code>text-align: justify</code>。中文没有空格分词，
+    两端对齐会为了凑齐右边缘而拉伸字距，遇到英文术语、数字、行末标点时尤其明显。
+    qi reader 用小是 <code>text-align: start</code>（左对齐）。我倾向改成左对齐。
+    <br><br>
+    <b>③ 行长</b>——当前默认档内容区 832px、段落 714px、17px 下约 42 字/行。
+    中文舒适区间是 30–45 字，42 已经偏上限。如果换 18px，同样 714px 会变成约 39 字，
+    反而更舒服。所以"再宽一点"和"字号再大一点"其实是同一个问题的两面。
+  </div>
+
+  <div class="note" style="background:#f0f7ff;border-color:#bfdbfe;color:#1e40af;">
+    <b>我的建议：</b>采纳方案 C——宋体保持不动，把 <code>justify</code> 改成 <code>start</code>，
+    字号默认提到 18px、行高 1.85。这样每行约 39 字，落在舒适区中段，
+    同时右边缘不再有被拉开的字缝。qa reader 那套无衬线是屏幕优先的选择，
+    但你现在的定位是"中文长文阅读"，宋体更匹配。
+    <br><br>
+    如果你更想要"屏上清晰锐利"，那就选 B，我把默认字体族从宋体切到系统无衬线。
+  </div>
+
+</div>
+
+<script>
+  // 字体变量
+  const FONTS = {
+    'var(--f-serif)': { name: '宋体', family: "'Songti SC','SimSun',serif" },
+    'var(--f-system)': { name: '系统无衬线', family: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif" },
+    'var(--f-kai)': { name: '楷体', family: "'Kaiti SC','KaiTi','STKaiti',serif" },
+  };
+
+  const state = { fs: 17, font: 'var(--f-serif)', align: 'justify', page: '1120px' };
+
+  const body = document.getElementById('body');
+  const page = document.getElementById('page');
+
+  function cpl(fs, width) {
+    // 粗略估算：中文全角字宽≈字号，714px / 17px ≈ 42
+    return Math.round(width / fs);
+  }
+
+  function render() {
+    body.style.fontFamily = FONTS[state.font].family;
+    body.style.fontSize = state.fs + 'px';
+    body.style.textAlign = state.align;
+    page.style.maxWidth = state.page;
+
+    document.getElementById('ro-fs').textContent = state.fs + 'px';
+    document.getElementById('ro-lh').textContent = (state.fs * 1.8).toFixed(1) + 'px';
+    document.getElementById('ro-font').textContent = FONTS[state.font].name;
+    document.getElementById('ro-align').textContent = state.align === 'justify' ? '两端对齐' : '左对齐';
+    document.getElementById('ro-page').textContent = state.page === '100%' ? '无上限' : state.page;
+
+    // 段落实际宽度
+    const para = body.querySelector('p');
+    const w = para ? Math.round(para.getBoundingClientRect().width) : 0;
+    document.getElementById('ro-cpl').textContent = w ? cpl(state.fs, w) + ' 字' : '—';
+  }
+
+  function bind(id, key, parse) {
+    const box = document.getElementById(id);
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      box.querySelectorAll('button').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      state[key] = parse(btn);
+      render();
+    });
+  }
+
+  bind('sw-font', 'font', b => b.dataset.font);
+  bind('sw-align', 'align', b => b.dataset.align);
+  bind('sw-size', 'fs', b => parseInt(b.dataset.fs, 10));
+  bind('sw-width', 'page', b => b.dataset.page);
+
+  render();
+  window.addEventListener('resize', render);
+</script>
+</body>
+</html>

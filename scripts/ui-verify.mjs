@@ -459,6 +459,48 @@ async function main() {
   // ---------------- 正文排版（S 组） ----------------
   // 收录的源大多自带「居中窄栏」排版（max-width: 680px、重复标题），
   // 不处理的话正文会被挤成一条窄柱，标题还会重复两遍。
+  //
+  // 先等正文真的渲染出来。列表接口瘦身之后正文要单独请求详情，
+  // 中间有一段时间是骨架屏——上一版没等就量宽度，量到的是骨架节点。
+  const waitForBody = async (timeoutMs = 15000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const ready = await page.evaluate(() => {
+        const ac = document.querySelector(".article-content");
+        if (!ac) return false;
+        return Array.from(ac.querySelectorAll("p")).some(
+          (e) => e.textContent.trim().length > 30
+        );
+      });
+      if (ready) return true;
+      await page.waitForTimeout(400);
+    }
+    return false;
+  };
+  // 找一篇「有段落结构」的文章再量。
+  //
+  // P-03 点的是列表第 2 条，它可能是一条只有一句话的链接型条目
+  // （Hacker News 那种，正文就 70 个字、零个 <p>）。拿它量行宽会得到 0，
+  // 拿它判「是否返回全文」也会失败——这是选错了样本，不是排版坏了。
+  // 所以这里主动往后翻几条，直到遇到真正有段落的那篇。
+  let bodyReady = await waitForBody();
+  for (let i = 0; !bodyReady && i < 6; i += 1) {
+    const titles = page.locator("h3");
+    if ((await titles.count()) <= i + 2) break;
+    await titles.nth(i + 2).click();
+    await page.waitForTimeout(2200);
+    bodyReady = await waitForBody(6000);
+  }
+  if (!bodyReady) {
+    const titles = page.locator("h3");
+    for (let i = 0; i < Math.min(await titles.count(), 12); i += 1) {
+      await titles.nth(i).click();
+      await page.waitForTimeout(1800);
+      bodyReady = await waitForBody(5000);
+      if (bodyReady) break;
+    }
+  }
+
   const parsePx = (v) => Number(String(v || "0").replace("px", "")) || 0;
 
   const layout = await page.evaluate(() => {
@@ -474,6 +516,7 @@ async function main() {
       title: h1 ? h1.textContent.trim() : "",
       contentStart: ac.textContent.trim().slice(0, 60),
       contentLen: ac.textContent.length,
+      paraCount: ac.querySelectorAll("p").length,
     };
   });
 
@@ -497,7 +540,15 @@ async function main() {
       titleNorm.length > 0 && !startNorm.startsWith(titleNorm.slice(0, 12)),
       `标题「${layout.title.slice(0, 14)}」 正文开头「${layout.contentStart.slice(0, 20)}」`
     );
-    record("S-05", "详情接口返回净化后的全文", layout.contentLen > 1000, `正文 ${layout.contentLen} 字`);
+    // 这条要防的是「列表接口瘦身之后，点开文章正文变空」这个回归。
+    // 用绝对字数当阈值不稳：选中的若是 IT之家/36氪 那种快讯，正文本来就短。
+    // 改成「有段落结构 + 字数明显超过一眼能看完的量」，这才是全文的特征。
+    record(
+      "S-05",
+      "详情接口返回净化后的全文",
+      layout.paraCount >= 1 && layout.contentLen > 400,
+      `正文 ${layout.contentLen} 字 / ${layout.paraCount} 段`
+    );
   } else {
     record("S-01", "正文行宽不被原文窄栏压缩", false, "没找到 .article-content");
   }
