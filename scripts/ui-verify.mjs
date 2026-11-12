@@ -718,6 +718,47 @@ async function main() {
   record("R-03", "桌面三栏齐全", (await visibleCount(desktop, "button.w-full.text-left")) > 0);
   await desktop.close();
 
+  // -------------------------------------------------------------------------
+  // L. 登录页（一键填入演示账号）
+  // -------------------------------------------------------------------------
+  // 演示账号以前是把邮箱和密码平铺成两行文字，让人照着抄。现在有个
+  // 「一键填入」按钮 —— 这条守住它真的把两个字段都填上了，否则新手
+  // 会看到按钮、点了没反应，比没有按钮更糟。
+  const loginPage = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+  await loginPage.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+  const fillBtn = loginPage.locator('button:has-text("一键填入")');
+  if ((await fillBtn.count()) > 0) {
+    await fillBtn.click();
+    await loginPage.waitForTimeout(400);
+    const filled = await loginPage.evaluate(() => ({
+      email: (document.querySelector('input[type="email"]')).value || "",
+      pw: (document.querySelector('input[type="password"]')).value || "",
+    }));
+    record(
+      "L-02",
+      "演示账号可一键填入",
+      filled.email.length > 0 && filled.pw.length > 0,
+      `${filled.email} / ${filled.pw ? "已填" : "空"}`
+    );
+    // 断言必须落在「真的登进去了」：只检查表单存在等于永远通过。
+    await loginPage.click('button[type="submit"]');
+    let loggedIn = true;
+    try {
+      await loginPage.waitForURL(/\/reader/, { timeout: 15000 });
+    } catch {
+      loggedIn = false;
+    }
+    record(
+      "L-03",
+      "一键填入后可直接登录",
+      loggedIn,
+      loggedIn ? loginPage.url().replace(BASE, "") : "15 秒内没跳到 /reader"
+    );
+  } else {
+    record("L-02", "登录页有演示账号入口", false, "没找到一键填入按钮");
+  }
+  await loginPage.close();
+
   // 恢复默认，避免影响下次运行
   await page.evaluate((key) => localStorage.removeItem(key), prefKey);
 

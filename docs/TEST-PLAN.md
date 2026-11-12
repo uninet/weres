@@ -189,6 +189,20 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 > 触屏没有 hover，所以判定条件是「`scrollTop < 24` 就显示」，
 > 不能依赖鼠标位置。
 
+### L. 登录页
+
+演示账号印在页面上，但让人照着抄一遍邮箱再抄一遍密码，是典型的「有信息没交互」。
+现在改成「一键填入」：点了就把两个字段填好，直接能登。
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| L-02 | 一键填入 | 点「一键填入」按钮 | 邮箱与密码两个 input 都有值 |
+| L-03 | 填入后可直接登录 | 紧接着点「登录」 | 15 秒内跳到 `/reader` |
+
+> L-03 的断言必须落在「真的登进去了」。第一版写的是「页面有 `<form>` 元素」，
+> 那等于永远通过 —— 一个永远绿的用例比没有用例更危险，它会让人以为这条路
+> 被守住了。
+
 ### R. 响应式布局
 
 桌面三栏并排在 390px 手机上会把正文压到几乎为零，所以小屏改成三级页面
@@ -433,7 +447,7 @@ node scripts/e2e-verify.mjs
 
 ```bash
 npm run verify:e2e   # API 层，85 个用例
-npm run verify:ui    # 浏览器层，34 个用例（Playwright + 系统 Chrome）
+npm run verify:ui    # 浏览器层，36 个用例（Playwright + 系统 Chrome）
 npm run verify       # 两套串联，任一失败则退出码非 0
 ```
 
@@ -478,7 +492,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 
 ```
 npm run verify:e2e   → 结果：85/85 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
-npm run verify:ui    → 结果：34/34 通过
+npm run verify:ui    → 结果：36/36 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

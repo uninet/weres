@@ -22,6 +22,16 @@ const validatePassword = (password: string): string => {
   return "";
 };
 
+/**
+ * 演示账号。
+ *
+ * 这两个值是 `npm run db:seed` 写进去的，别人 clone 下来跑 seed 就有。
+ * 抽成常量而不是散在 JSX 里，是为了改的时候只改一处；如果将来想让
+ * 部署者自定义，这里改成读 `process.env.NEXT_PUBLIC_DEMO_EMAIL` 即可。
+ */
+const DEMO_EMAIL = "test@example.com";
+const DEMO_PASSWORD = "123456";
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -238,12 +248,29 @@ export function LoginForm() {
             </div>
           </div>
 
-          {/* Test Account Info */}
-          <div className="mt-4 p-4 bg-muted rounded-lg">
-            <p className="text-sm font-medium mb-2">测试账号</p>
-            <div className="text-sm text-muted-foreground space-y-1">
-              <p>邮箱: test@example.com</p>
-              <p>密码: 123456</p>
+          {/* 演示账号：给个一键填入，别让人照着抄一遍再手打 */}
+          <div className="mt-4 rounded-lg bg-muted p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">演示账号</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {DEMO_EMAIL} · {DEMO_PASSWORD}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  setEmail(DEMO_EMAIL);
+                  setPassword(DEMO_PASSWORD);
+                  setError("");
+                  setFieldErrors({});
+                }}
+              >
+                一键填入
+              </Button>
             </div>
           </div>
 
