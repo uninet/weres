@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GuestBanner, GuestRestrictionModal } from "@/components/guest-banner";
-import { Header } from "@/components/reader/header";
+import { ReaderDock } from "@/components/reader/reader-dock";
 import { Sidebar } from "@/components/reader/sidebar";
 import { ArticleList } from "@/components/reader/article-list";
 import { ArticleContent } from "@/components/reader/article-content";
@@ -383,20 +383,12 @@ export default function ReaderPage() {
   return (
     <TooltipProvider>
       <div className={cn("h-screen flex flex-col", settings.isDarkMode ? "dark" : "")}>
-        <div className="h-screen flex flex-col bg-[#f8f6f3] dark:bg-[#1a1a1a]">
-          {/* Header */}
-          {!isImmersiveMode && (
-            <Header
-              activeNav={activeNav}
-              unreadCount={unreadCount}
-              isDarkMode={settings.isDarkMode}
-              onNavChange={setActiveNav}
-              onToggleDarkMode={toggleDarkMode}
-              readerTheme={readerTheme}
-              onThemeChange={setReaderTheme}
-              showUnreadBadge={preferences.showUnreadBadge}
-            />
-          )}
+        <div className="relative h-screen flex flex-col bg-[#f8f6f3] dark:bg-[#1a1a1a]">
+          {/* 顶栏已取消。
+              原来这里是一条 h-14 的横栏（logo / 全部·稍后阅读·未读 /
+              主题 / 设置 / 个人中心），和内容上下排列，等于整块屏幕顶部
+              被切掉 56px。这些东西都不是阅读时需要一直看着的，所以整条
+              收进左下角的 ReaderDock，顶部空间全部还给内容。 */}
 
           {/* Main Content */}
           {/*
@@ -410,9 +402,18 @@ export default function ReaderPage() {
             {!isImmersiveMode && (
               <div
                 className={cn(
-                  "shrink-0 md:block",
-                  // 小屏：没选源时显示侧栏，选了源就藏起来让位给列表
-                  selectedFeed || searchQuery ? "hidden" : "block w-full md:w-auto"
+                  // 保持 flex flex-col（不要用 md:block 覆盖 display）：
+                  // 侧栏要 flex-1 撑满、ReaderDock 才能被推到最底部。
+                  // h-full min-h-0 是必须的：没有高度约束时这个列会被内容
+                  // 撑高，ScrollArea 不再收缩，底部的 ReaderDock 就叠在
+                  // 最后几条源上面。
+                  "relative flex h-full min-h-0 shrink-0 flex-col",
+                  // 小屏：没选源时显示侧栏，选了源就藏起来让位给列表。
+                  // md:flex 不能漏——hidden 对所有断点生效，少了它
+                  // 桌面端一旦选了源或输入搜索词，整条侧栏就消失了。
+                  selectedFeed || searchQuery
+                    ? "hidden md:flex"
+                    : "flex w-full md:w-auto"
                 )}
               >
               <Sidebar
@@ -426,6 +427,22 @@ export default function ReaderPage() {
                 onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
                 onRefreshFeed={handleRefreshFeed}
               />
+
+              {/* 导航与设置入口：钉在侧栏这一列的左下角。
+                  放在侧栏列内部而不是整页绝对定位，是为了不盖住
+                  列表/正文——它是「左边的工具」，就该待在左边。 */}
+              {!isImmersiveMode && (
+                <ReaderDock
+                  activeNav={activeNav}
+                  unreadCount={unreadCount}
+                  onNavChange={setActiveNav}
+                  readerTheme={readerTheme}
+                  onThemeChange={setReaderTheme}
+                  showUnreadBadge={preferences.showUnreadBadge}
+                  sidebarCollapsed={sidebarCollapsed}
+                  onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+                />
+              )}
               </div>
             )}
 

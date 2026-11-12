@@ -4,16 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Search,
-  Plus,
-  ChevronLeft,
-  ChevronRight,
-  RotateCw,
-  Rss,
-  Bookmark,
-  Tag,
-} from "lucide-react";
+import { Search, Plus, RotateCw, Rss, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Group } from "@/types/reader";
 
@@ -58,7 +49,7 @@ export function Sidebar({
       className={cn(
         // 小屏上侧栏占满整宽（由 page 用覆盖层控制显隐）；
         // 从 md 起才回到「可折叠的固定窄栏」。
-        "bg-[#f5f5f5] dark:bg-[#1a1a1a] border-r border-[#e0e0e0] dark:border-[#2a2a2a] flex flex-col transition-all duration-300 ease-in-out",
+        "bg-[#f5f5f5] dark:bg-[#1a1a1a] border-r border-[#e0e0e0] dark:border-[#2a2a2a] flex flex-1 min-h-0 flex-col transition-all duration-300 ease-in-out",
         "w-full md:w-auto",
         sidebarCollapsed ? "md:w-16" : "md:w-64"
       )}
@@ -129,7 +120,9 @@ export function Sidebar({
         )}
 
         {/* Feed List */}
-        <div className={cn("space-y-0.5", sidebarCollapsed ? "p-1" : "px-2 pb-2")}>
+        {/* pb-16：给左下角的 ReaderDock 留出位置，否则最后几个源
+            会被常驻入口挡住，用户滚到底也点不到。 */}
+        <div className={cn("space-y-0.5", sidebarCollapsed ? "p-1 pb-3" : "px-2 pb-3")}>
           {(groups || []).map((group) => (
             <div key={group.id}>
               {!sidebarCollapsed && (
@@ -221,21 +214,10 @@ export function Sidebar({
         </div>
       </ScrollArea>
 
-      {/* Bottom Collapse Button */}
-      <div className="p-2 border-t border-[#e0e0e0] dark:border-[#2a2a2a]">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-center rounded-lg text-[#666] hover:bg-[#e8e8e8] dark:text-[#999] dark:hover:bg-[#252525]"
-          onClick={onToggleCollapse}
-        >
-          {sidebarCollapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
+      {/* 底部原来的「折叠侧栏」按钮已移除。
+          它的位置留给左下角的导航入口（ReaderDock）——那个按钮
+          常驻在屏幕左下角，两个控件挤在同一处会互相遮挡。
+          折叠/展开改从 ReaderDock 的菜单里操作。 */}
     </div>
   );
 }

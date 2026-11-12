@@ -115,12 +115,18 @@ async function main() {
   await page.goto(`${BASE}/reader`, { waitUntil: "networkidle" });
   await page.waitForTimeout(3000);
 
-  const themeBtn = page.locator('button[title="阅读主题"]').first();
+  // 主题从顶栏收进了左下角入口的「外观」子菜单——顶栏整条已经取消。
+  const themeBtn = page.locator('button[title="导航与设置"]').first();
   if (await themeBtn.count()) {
     await themeBtn.click();
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(600);
+    const appearance = page.locator('[role="menuitem"]').filter({ hasText: "外观" }).first();
+    if (await appearance.count()) {
+      await appearance.hover();
+      await page.waitForTimeout(700);
+    }
     const items = await page.locator('[role="menuitem"]').allInnerTexts();
-    record("G-01", "主题下拉含四档", items.length >= 4, items.join(" / "));
+    record("G-01", "主题下拉含四档", items.filter((t) => /浅色|米黄|电子墨水|深色/.test(t)).length >= 4, items.join(" / "));
 
     const eink = page.locator('[role="menuitem"]').filter({ hasText: "电子墨水" }).first();
     if (await eink.count()) {
@@ -140,11 +146,22 @@ async function main() {
         (await page.evaluate(() => document.documentElement.dataset.readerTheme)) === "eink"
       );
 
-      // 恢复成浅色，别影响后续用例与人工查看
-      await page.locator('button[title="阅读主题"]').first().click();
-      await page.waitForTimeout(600);
-      await page.locator('[role="menuitem"]').filter({ hasText: "浅色" }).first().click();
-      await page.waitForTimeout(600);
+      // 恢复成浅色，别影响后续用例与人工查看。
+      // 刷新之后菜单是关着的，得重新从左下角入口进「外观」。
+      await page.locator('button[title="导航与设置"]').first().click();
+      await page.waitForTimeout(500);
+      const appearance2 = page.locator('[role="menuitem"]').filter({ hasText: "外观" }).first();
+      if (await appearance2.count()) {
+        await appearance2.hover();
+        await page.waitForTimeout(600);
+      }
+      const light = page.locator('[role="menuitem"]').filter({ hasText: "浅色" }).first();
+      if (await light.count()) {
+        await light.click();
+        await page.waitForTimeout(600);
+      }
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
     }
   } else {
     record("G-01", "主题下拉存在", false);
@@ -394,13 +411,31 @@ async function main() {
   );
 
   // P-02 未读角标：关掉后角标不应再渲染
+  // 未读角标的渲染位置：左下角入口按钮里的那个小胶囊
+  // （顶栏取消后它跟着搬到了这里）
   const readBadge = () =>
     page.evaluate(() => {
-      const el = [...document.querySelectorAll("span")].find((s) =>
+      const dock = document.querySelector('button[title="导航与设置"]');
+      if (!dock) return null;
+      const el = [...dock.querySelectorAll("span")].find((s) =>
         String(s.className).includes("bg-[#c9a962]")
       );
       return el ? el.textContent : null;
     });
+
+  // 角标只在「未读」这一项上显示（它表达的是未读数），
+  // 所以先把当前筛选切到未读，否则读到的是「全部」那一项，本来就没有角标。
+  const switchToUnread = async () => {
+    const dockBtn = page.locator('button[title="导航与设置"]').first();
+    if (!(await dockBtn.count())) return;
+    await dockBtn.click();
+    await page.waitForTimeout(500);
+    const unread = page.locator('[role="menuitem"]').filter({ hasText: "未读" }).first();
+    if (await unread.count()) {
+      await unread.click();
+      await page.waitForTimeout(900);
+    }
+  };
 
   await page.evaluate(
     (key) => localStorage.setItem(key, JSON.stringify({ showUnreadBadge: true })),
@@ -408,6 +443,7 @@ async function main() {
   );
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(3500);
+  await switchToUnread();
   const badgeOn = await readBadge();
 
   await page.evaluate(
@@ -416,6 +452,7 @@ async function main() {
   );
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(3500);
+  await switchToUnread();
   const badgeOff = await readBadge();
 
   record(
