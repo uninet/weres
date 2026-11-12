@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { validateRSSUrl, extractFavicon } from "@/lib/rss-parser";
+import { UnsafeUrlError } from "@/lib/url-safety";
 import { z } from "zod";
 import { getClientIdentifier, checkRateLimit, rateLimitConfigs } from "@/lib/rate-limit";
+
+// 这个接口要读请求头做限流标识，不能被预渲染
+export const dynamic = "force-dynamic";
 
 const validateSchema = z.object({
   url: z.string().url(),
@@ -67,6 +71,16 @@ export async function POST(req: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { success: false, message: "URL 格式无效" },
+        { status: 400 }
+      );
+    }
+
+    // 内网地址不是「服务器故障」，是用户输入不合法，必须是 400。
+    // 混进 500 会让调用方以为服务挂了、重试同一地址，也容易在监控里
+    // 被当成异常噪音掩盖真实故障。
+    if (error instanceof UnsafeUrlError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
         { status: 400 }
       );
     }

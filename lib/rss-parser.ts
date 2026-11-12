@@ -2,6 +2,7 @@ import Parser from 'rss-parser';
 import * as cheerio from 'cheerio';
 import { prisma } from './prisma';
 import { sanitizeArticleHtml } from './sanitize';
+import { assertSafeOutboundUrl } from './url-safety';
 
 const parser = new Parser({
   headers: {
@@ -190,6 +191,14 @@ function looksLikeFeed(text: string): boolean {
  * 失败时再用朴素 UA 重试一次 —— 覆盖「按 UA 返回 HTML」的站点。
  */
 export async function parseRSS(url: string): Promise<RSSFeed> {
+  // 这里是所有 RSS 抓取的总入口（验证订阅源、新增订阅、OPML 导入、
+  // 定时同步都走它），所以 SSRF 防护放在这一层最彻底。
+  //
+  // 不过滤的话，任何访客都能让服务端去请求 169.254.169.254（云元数据，
+  // 可换到临时凭证）或 127.0.0.1:3000，服务端在内网里，请求会带着内网
+  // 权限出去。
+  await assertSafeOutboundUrl(url);
+
   let feed;
   try {
     feed = await parser.parseURL(url);
@@ -268,6 +277,17 @@ export function extractFavicon(url: string): string {
  * 获取文章完整内容
  */
 async function fetchFullContent(url: string, feedUrl: string): Promise<string | null> {
+  try {
+    // 文章链接来自 RSS 内容，同样是外部可控输入：一个恶意源可以把
+    // <link> 写成 http://169.254.169.254/latest/meta-data/，服务端就会
+    // 带着内网权限去抓。与 parseRSS 一样必须过安全校验。
+    //
+    // 单个失败只影响这一篇文章拿不到全文，不该让整次同步失败。
+    await assertSafeOutboundUrl(url);
+  } catch {
+    return null;
+  }
+
   try {
     // 针对特定网站的处理
     if (url.includes('36kr.com') || url.includes('36kr.cn')) {

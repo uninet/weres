@@ -102,6 +102,41 @@ async function testSecurity() {
     `status=${forged.status}`
   );
 
+  // SSRF：服务端不能替任何人去请求内网 / 云元数据。这些地址一旦可达，
+  // 攻击者就能用服务端的内网身份读取元数据服务、内网数据库等。
+  const ssrfTargets = [
+    ["I-07", "http://127.0.0.1:3000/api/health", "环回地址"],
+    ["I-08", "http://169.254.169.254/latest/meta-data/", "云元数据"],
+    ["I-09", "http://10.0.0.1/", "私有网段"],
+    ["I-10", "file:///etc/passwd", "非 http 协议"],
+    ["I-11", "http://127.0.0.1.nip.io:3000/", "解析到内网的域名"],
+  ];
+  for (const [id, url, label] of ssrfTargets) {
+    const res = await api("/api/feeds/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    record(id, `SSRF 拦截：${label}`, res.status === 400, `status=${res.status}`);
+  }
+
+  // 通知只能由本人读改，不能由匿名访客写入
+  const injected = await api("/api/notifications", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: "any",
+      type: "SYSTEM",
+      title: "未授权注入测试",
+    }),
+  });
+  record(
+    "I-12",
+    "匿名访客不能向他人收件箱注入通知",
+    injected.status === 405,
+    `status=${injected.status}`
+  );
+
   cookie = savedCookie;
 }
 

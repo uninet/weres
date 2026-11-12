@@ -140,6 +140,12 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | I-04 | XSS 净化 | 源正文含 `<img onerror=...><script>` | 返回内容中 `onerror` 与 `<script>` 均被移除 |
 | I-05 | 伪造 token | 用 `your-secret-key` 签的 JWT 请求 `/api/auth/me` | 401 |
 | I-06 | 弱密钥拒绝启动 | `JWT_SECRET=your-jwt-secret-key-change-in-production` 启动 | 服务端抛 `AuthConfigError`，不签发票据 |
+| I-07 | SSRF 环回 | `POST /api/feeds/validate` body `{"url":"http://127.0.0.1:3000/api/health"}` | **400**「不允许访问内网地址」 |
+| I-08 | SSRF 云元数据 | 同上，url 换成 `http://169.254.169.254/latest/meta-data/` | **400**（且必须在 1 秒内返回，不能真的发起连接） |
+| I-09 | SSRF 私有网段 | 同上，url 换成 `http://10.0.0.1/` | **400** |
+| I-10 | SSRF 非 http 协议 | 同上，url 换成 `file:///etc/passwd` | **400**「只支持 http / https 协议」 |
+| I-11 | SSRF 域名解析到内网 | 同上，url 换成 `http://127.0.0.1.nip.io:3000/` | **400**（证明不是只拦 IP 字面量） |
+| I-12 | 通知不可匿名写入 | 不带 Cookie `POST /api/notifications` | **405**（该接口不接受外部创建） |
 
 ### J. 运维
 

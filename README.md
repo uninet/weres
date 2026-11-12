@@ -133,6 +133,7 @@ docker compose logs -f werss
 | `JWT_SECRET` | **必填** | 登录令牌签名密钥，≥32 字符 |
 | `APP_PORT` | `3000` | 宿主机映射端口 |
 | `ALLOW_GUEST_MODE` | `false` | 是否启用共享访客账号 |
+| `ALLOW_PRIVATE_FEED_URLS` | `false` | 允许订阅内网地址的源（自建 RSSHub 时开） |
 | `SEED_ON_FIRST_BOOT` | `true` | 空库时是否自动导入演示数据 |
 | `NEXTAUTH_URL` | `http://localhost:3000` | 站点对外地址 |
 | `SMTP_HOST` 等 | 未设置 | 配置后才启用 Kindle 推送，见下方说明 |
@@ -163,6 +164,7 @@ node .next/standalone/server.js
 | `NEXTAUTH_SECRET` | 否 | 兼容旧配置，建议与 `JWT_SECRET` 相同 |
 | `NEXTAUTH_URL` | 否 | 站点地址，用于 Cookie 与回跳 |
 | `ALLOW_GUEST_MODE` | 否 | `true` 时未登录用户以共享访客身份浏览 |
+| `ALLOW_PRIVATE_FEED_URLS` | 否 | `true` 时允许订阅内网/私有网段的源；默认拒绝以防 SSRF |
 | `NODE_ENV` | 否 | `development` / `production` |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | 否 | Kindle 推送用。不配则该功能隐藏，不影响其他部分 |
 
@@ -299,6 +301,17 @@ SMTP_FROM="you@qq.com"
   `Permissions-Policy` 等，见 `next.config.mjs`。
 - **图片**：关掉了 Next 的服务端图片优化（`images.unoptimized`）。
   原先允许任意 https 域，等于把服务器变成开放代理。
+- **出站请求（SSRF 防护）**：`lib/url-safety.ts` 会拒绝服务端去请求环回地址、
+  私有网段（`10/8`、`172.16/12`、`192.168/16`）、链路本地（含云厂商元数据
+  `169.254.169.254`）、非 `http(s)` 协议，以及**解析到内网 IP 的域名**。
+  只看主机名字符串是不够的 —— `127.0.0.1`、`[::1]`、`2130706433`、
+  或一个解析到内网的公网域名都能绕过去，所以这里做的是「解析出真实 IP 再查」。
+  所有 RSS 抓取（订阅、验证、OPML 导入、同步）和全文抓取都经过这一层。
+  内网自建 RSSHub 这类正当需求，用 `ALLOW_PRIVATE_FEED_URLS=true` 显式放开。
+
+  已知局限：DNS 解析与实际连接之间存在时间窗，理论上存在 DNS rebinding 攻击。
+  彻底封堵需要在 socket 层固定解析结果，代价是接管整个 HTTP 客户端，
+  当前实现选择不引入这个复杂度。
 
 ### 切换到 PostgreSQL
 

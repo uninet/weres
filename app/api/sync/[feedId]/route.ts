@@ -1,27 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { sanitizeArticleHtml } from "@/lib/sanitize";
-import Parser from "rss-parser";
+import { syncFeed } from "@/lib/rss-parser";
 
-const rssParser = new Parser({
-  timeout: 10000,
-  headers: {
-    'User-Agent': 'WeRSS/1.0 RSS Reader'
-  }
-});
+// 返回内容依赖当前用户与数据库实时状态，不能被预渲染
+export const dynamic = "force-dynamic";
 
 /**
  * POST /api/sync/[feedId]
  * 同步单个 RSS 订阅源
- * 需要认证
+ *
+ * 这里原本是自己实现的一套解析 + 入库逻辑（133 行），和
+ * lib/rss-parser.ts 的 syncFeed() 是两条独立代码路径。问题在于：
+ * 自实现的那条**不调用 fetchFullContent()**，于是「RSS 只给摘要的站点」
+ * 通过单个源刷新时永远只有一百多字，而全量同步却能拿到全文 ——
+ * 用户看到的是「有时候有全文，有时候没有」，完全无法预期。
+ *
+ * 现在改为薄封装，只负责鉴权与归属校验，真正的同步逻辑复用 syncFeed()。
+ * 两套实现并存时，修了一处永远不知道另一处还在犯同样的错。
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: { feedId: string } }
 ) {
   try {
-    // 验证用户身份
     const token = request.cookies.get("token")?.value;
     if (!token) {
       return NextResponse.json(
@@ -48,15 +50,12 @@ export async function POST(
       );
     }
 
-    // 获取订阅源信息
+    // 必须先确认这个源在当前用户名下订阅着。
+    // 少了这一步，任何人只要拿到一个 feedId 就能触发对任意源的抓取
+    // （包括已停更或别人私有的源），把服务端当成免费的抓取代理。
     const subscription = await prisma.subscription.findFirst({
-      where: {
-        userId,
-        feedId,
-      },
-      include: {
-        feed: true,
-      },
+      where: { userId, feedId },
+      select: { id: true },
     });
 
     if (!subscription) {
@@ -66,65 +65,18 @@ export async function POST(
       );
     }
 
-    // 解析 RSS feed
-    const feedData = await rssParser.parseURL(subscription.feed.url);
+    const result = await syncFeed(feedId);
 
-    // 同步文章
-    let newArticlesCount = 0;
-    for (const item of feedData.items || []) {
-      try {
-        // 检查文章是否已存在
-        const existingArticle = await prisma.article.findFirst({
-          where: {
-            feedId: subscription.feed.id,
-            link: item.link || item.guid,
-          },
-        });
-
-        if (!existingArticle) {
-          // 创建新文章
-          await prisma.article.create({
-            data: {
-              feedId: subscription.feed.id,
-              title: item.title || "无标题",
-              link: item.link || item.guid || "",
-              description: item.contentSnippet || item.content || "",
-              // 第三方 HTML 必须先净化再入库（不可信输入）
-              content: sanitizeArticleHtml(
-                item["content:encoded"] || item.content || item.contentSnippet || ""
-              ),
-              author: item.creator || item.author,
-              pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
-              guid: item.guid || item.link,
-            },
-          });
-          newArticlesCount++;
-        }
-      } catch (error) {
-        console.error("保存文章失败:", error);
-        // 继续处理下一篇文章
-      }
-    }
-
-    // 更新订阅源最后同步时间
-    await prisma.feed.update({
-      where: { id: subscription.feed.id },
-      data: {
-        lastSyncAt: new Date(),
+    return NextResponse.json(
+      {
+        success: result.success,
+        data: { newArticles: result.count },
+        message: result.message,
       },
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        feedId: subscription.feed.id,
-        feedTitle: subscription.feed.title,
-        newArticles: newArticlesCount,
-        totalArticles: feedData.items?.length || 0,
-      },
-    });
+      { status: result.success ? 200 : 500 }
+    );
   } catch (error) {
-    console.error("同步订阅源失败:", error);
+    console.error("Sync single feed error:", error);
     return NextResponse.json(
       { success: false, message: "同步失败，请稍后重试" },
       { status: 500 }

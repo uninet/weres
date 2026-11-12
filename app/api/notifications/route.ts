@@ -14,14 +14,6 @@ const getNotificationsSchema = z.object({
   unreadOnly: z.string().optional().default("false"),
 });
 
-const createNotificationSchema = z.object({
-  userId: z.string(),
-  type: z.string(),
-  title: z.string(),
-  content: z.string().optional(),
-  data: z.string().optional(),
-});
-
 // GET /api/notifications - 获取通知列表
 export async function GET(req: Request) {
   try {
@@ -91,48 +83,6 @@ export async function GET(req: Request) {
     }
     return NextResponse.json(
       { error: "获取通知列表失败" },
-      { status: 500 }
-    );
-  }
-}
-
-// POST /api/notifications - 创建通知（系统内部使用）
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const { userId, type, title, content, data } = createNotificationSchema.parse(body);
-
-    const notification = await prisma.notification.create({
-      data: {
-        userId,
-        type,
-        title,
-        content,
-        data,
-      },
-    });
-
-    return NextResponse.json({
-      notification: {
-        id: notification.id,
-        type: notification.type,
-        title: notification.title,
-        content: notification.content,
-        data: notification.data,
-        isRead: notification.isRead,
-        createdAt: notification.createdAt,
-      },
-    });
-  } catch (error) {
-    console.error("Create notification error:", error);
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "参数错误", details: error.issues },
-        { status: 400 }
-      );
-    }
-    return NextResponse.json(
-      { error: "创建通知失败" },
       { status: 500 }
     );
   }
