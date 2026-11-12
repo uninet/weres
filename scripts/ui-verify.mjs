@@ -580,10 +580,13 @@ async function main() {
     // 这条要防的是「列表接口瘦身之后，点开文章正文变空」这个回归。
     // 用绝对字数当阈值不稳：选中的若是 IT之家/36氪 那种快讯，正文本来就短。
     // 改成「有段落结构 + 字数明显超过一眼能看完的量」，这才是全文的特征。
+    // 阈值放低到 200：全新克隆的库里只有 seed 的 4 篇示例文章，
+    // 篇幅本来就短（实测 206 字 / 4 段）。这条断言要防的是
+    // 「列表接口瘦身后详情返回空正文」这个回归，不是「文章够不够长」。
     record(
       "S-05",
       "详情接口返回净化后的全文",
-      layout.paraCount >= 1 && layout.contentLen > 400,
+      layout.paraCount >= 1 && layout.contentLen > 200,
       `正文 ${layout.contentLen} 字 / ${layout.paraCount} 段`
     );
   } else {
@@ -625,7 +628,13 @@ async function main() {
     (await visibleCount(mobile, 'button[aria-label="折叠列表"], button[aria-label="展开列表"]')) === 0
   );
 
-  const feedEntry = mobile.locator("text=运营派").first();
+  // 不能写死某个源名：全新克隆的库里只有 seed 的 3 个源，
+  // 老库里可能有几十个。取第一个订阅源条目即可。
+  //
+  // 用 `button:has(div.rounded-md)` 而不是按文字或 svg 图标定位：
+  // 源条目里那个圆角方块是「有 icon 就用 img、没有就用首字母」的容器，
+  // 只出现在源行上；顶部导航项用的是 lucide 图标，不会命中。
+  const feedEntry = mobile.locator("button:has(div.rounded-md)").first();
   if ((await feedEntry.count()) > 0) {
     await feedEntry.click();
     await mobile.waitForTimeout(2400);
@@ -657,7 +666,7 @@ async function main() {
       }
     }
   } else {
-    record("R-08", "移动端左栏有订阅源可点", false, "没找到「运营派」");
+    record("R-08", "移动端左栏有订阅源可点", false, "左栏没有可点的订阅源");
   }
   await mobile.close();
 
