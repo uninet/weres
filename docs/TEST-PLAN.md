@@ -207,6 +207,17 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | R-09 | 移动端点文章进入正文 | 点列表第一项 | `article` 存在且占满整宽 |
 | R-10 | 移动端返回列表 | 点工具栏返回 | 正文消失、列表可见 |
 
+| R-11 | 左下角入口不被底部导航遮挡 | 移动端打开阅读器（侧栏可见时）量 `button[title="导航与设置"]` 与底部 `nav` 的位置 | 两者间隙 ≥0 且重叠为 0 |
+
+> **R-11 的由来**：底部导航是 `fixed` 定位、不进文档流，任何贴着屏幕
+> 底部的控件都必须自己让出这块高度。阅读器左下角的「导航与设置」入口
+> 钉在侧栏列的最底部，正好落在导航条底下 —— 截图上看完全正常，但真实
+> 点击会被导航接走（playwright 直接报 `subtree intercepts pointer events`）。
+> 修复是给阅读器根容器加 `pb-14 md:pb-0`。这条用例在修复前实测报
+> `间距 -43px，重叠 35px`，修复后 `间距 6px，重叠 0px`，所以它确实在守东西。
+> 量测必须放在侧栏可见的时刻：点进正文后侧栏被隐藏，`getBoundingClientRect()`
+> 全是 0，断言会退化成一个永远通过的空验证。
+
 > 自动选中这条最容易漏：桌面要靠自动选中填满右栏，小屏却会让人点完源
 > 瞬间跳进正文、以为没反应。代码里用 `matchMedia("(max-width: 767px)")`
 > 在小屏跳过自动选中。
@@ -422,7 +433,7 @@ node scripts/e2e-verify.mjs
 
 ```bash
 npm run verify:e2e   # API 层，85 个用例
-npm run verify:ui    # 浏览器层，33 个用例（Playwright + 系统 Chrome）
+npm run verify:ui    # 浏览器层，34 个用例（Playwright + 系统 Chrome）
 npm run verify       # 两套串联，任一失败则退出码非 0
 ```
 
@@ -467,7 +478,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 
 ```
 npm run verify:e2e   → 结果：85/85 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
-npm run verify:ui    → 结果：33/33 通过
+npm run verify:ui    → 结果：34/34 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

@@ -628,6 +628,33 @@ async function main() {
     (await visibleCount(mobile, 'button[aria-label="折叠列表"], button[aria-label="展开列表"]')) === 0
   );
 
+  // 底部导航是 fixed 定位、不占文档流，任何「贴着屏幕底部」的控件都必须
+  // 自己让出这块高度。阅读器左下角的「导航与设置」入口就踩过这个坑：
+  // 它钉在侧栏列底部，正好落在导航条底下 —— 视觉上看得见、点上去被
+  // 导航接走（playwright 报 "subtree intercepts pointer events"）。
+  // 必须在这一步量（此时侧栏可见），点进正文后侧栏被隐藏，rect 会变成 0，
+  // 断言就退化成一个空验证。
+  const dockGeo = await mobile.evaluate(() => {
+    const dock = document.querySelector('button[title="导航与设置"]');
+    const nav = [...document.querySelectorAll("nav")].find(
+      (n) => getComputedStyle(n).position === "fixed"
+    );
+    if (!dock || !nav) return null;
+    const d = dock.getBoundingClientRect();
+    const n = nav.getBoundingClientRect();
+    if (d.width === 0 || d.height === 0) return null;
+    return {
+      gap: Math.round(n.top - d.bottom),
+      overlap: Math.max(0, Math.min(d.bottom, n.bottom) - Math.max(d.top, n.top)),
+    };
+  });
+  record(
+    "R-11",
+    "移动端左下角入口不被底部导航遮挡",
+    Boolean(dockGeo) && dockGeo.overlap === 0 && dockGeo.gap >= 0,
+    dockGeo ? `间距 ${dockGeo.gap}px，重叠 ${dockGeo.overlap}px` : "dock 不可见或找不到导航条"
+  );
+
   // 不能写死某个源名：全新克隆的库里只有 seed 的 3 个源，
   // 老库里可能有几十个。取第一个订阅源条目即可。
   //

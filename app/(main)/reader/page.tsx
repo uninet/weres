@@ -452,7 +452,11 @@ export default function ReaderPage() {
   return (
     <TooltipProvider>
       <div className={cn("h-screen flex flex-col", settings.isDarkMode ? "dark" : "")}>
-        <div className="relative h-screen flex flex-col bg-[#f8f6f3] dark:bg-[#1a1a1a]">
+        {/* pb-14 md:pb-0：移动端底部有一条 56px 的常驻导航（fixed 定位，
+            不占文档流），这里必须把这块高度让出来。否则侧栏最底部的
+            「导航与设置」入口正好被压在导航条下面 —— 视觉上看得见，点上去
+            全被导航接走，等于点不到。桌面端没有底部导航，不预留。 */}
+        <div className="relative flex h-screen flex-col bg-[#f8f6f3] pb-14 md:pb-0 dark:bg-[#1a1a1a]">
           {/* 顶栏已取消。
               原来这里是一条 h-14 的横栏（logo / 全部·稍后阅读·未读 /
               主题 / 设置 / 个人中心），和内容上下排列，等于整块屏幕顶部
