@@ -1,12 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useScrollToRead } from "@/hooks/use-scroll-to-read";
 import { useTextToSpeech, htmlToSpeakableText } from "@/hooks/use-text-to-speech";
-import { Volume2, VolumeX, Pause } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
@@ -16,28 +14,14 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   Heart,
-  Share2,
   Maximize2,
   Minimize2,
   Bookmark,
-  Type,
-  Sun,
-  Moon,
-  Tag as TagIcon,
-  Plus,
-  Check,
+  Share2,
 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   getFontSizeClass,
   getFontFamilyClass,
@@ -49,6 +33,9 @@ import {
   lineHeightOptions,
   contentWidthOptions,
 } from "@/lib/reader-config";
+import { ReaderMoreMenu } from "@/components/reader/reader-more-menu";
+import { pageScroll, scrollReaderTo } from "@/lib/reader-paging";
+import type { ReaderThemeId } from "@/hooks/use-reader-theme";
 import type { Article } from "@/types/reader";
 
 interface ArticleContentProps {
@@ -74,6 +61,9 @@ interface ArticleContentProps {
   onFontFamilyChange: (value: string) => void;
   onLineHeightChange: (value: string) => void;
   onContentWidthChange: (value: string) => void;
+  /** 当前阅读主题（浅色 / 米黄 / 电子墨水 / 深色） */
+  readerTheme: ReaderThemeId;
+  onReaderThemeChange: (theme: ReaderThemeId) => void;
   onShowRestriction: (feature: string) => void;
   /** 滚动到一定进度后自动标记已读（QiReader 同款行为） */
   onMarkReadByScroll?: (articleId: string) => void;
@@ -117,6 +107,8 @@ export function ArticleContent({
   onFontFamilyChange,
   onLineHeightChange,
   onContentWidthChange,
+  readerTheme,
+  onReaderThemeChange,
   onShowRestriction,
   onMarkReadByScroll,
   onToggleFavorite,
@@ -144,6 +136,28 @@ export function ArticleContent({
     enabled: Boolean(article && !article.isRead && onMarkReadByScroll),
     onRead: (id) => onMarkReadByScroll?.(id),
   });
+
+  // 空格键翻页。
+  //
+  // 滚动容器在 ArticleContent 内部（Radix ScrollArea），父组件的快捷键
+  // 处理器拿不到它，所以这里监听一个自定义事件由父组件派发。
+  // 比往上提 ref 简单：不需要改 ArticleContent 的对外接口，也不用
+  // forwardRef + useImperativeHandle 那套仪式。
+  useEffect(() => {
+    const handlePage = (event: Event) => {
+      const direction = (event as CustomEvent<"down" | "up">).detail;
+      pageScroll(scrollRef.current, direction);
+    };
+    window.addEventListener("reader:page", handlePage);
+    return () => window.removeEventListener("reader:page", handlePage);
+  }, []);
+
+  // 切换文章时把正文滚回顶部。
+  // 不这么做的话，读到第 3 屏时按 n，新文章会从第 3 屏开始显示 ——
+  // 用户看到的是文章中间某段，还以为内容坏了。
+  useEffect(() => {
+    scrollReaderTo(scrollRef.current, "top");
+  }, [article?.id]);
 
   const currentIndex = article
     ? articles.findIndex((a) => a.id === article.id)
@@ -176,7 +190,7 @@ export function ArticleContent({
       )}
     >
       {/* Toolbar */}
-      <div className="h-14 border-b border-[#e0e0e0] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1e] flex items-center justify-between px-4 shrink-0">
+      <div className="h-12 border-b border-[#e0e0e0] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1e] flex items-center justify-between px-3 shrink-0">
         <div className="flex items-center gap-1">
           {/* Collapse Feed List Button (mobile/tablet) */}
           <Button
@@ -197,7 +211,7 @@ export function ArticleContent({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
+                className="h-9 w-9 rounded-lg text-[#666] transition-all duration-150 hover:text-[#1a1a1a] hover:bg-black/[0.05] active:scale-90 dark:text-[#999] dark:hover:text-white dark:hover:bg-white/[0.08]"
                 onClick={onPrevArticle}
                 disabled={!hasPrevArticle}
               >
@@ -213,7 +227,7 @@ export function ArticleContent({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
+                className="h-9 w-9 rounded-lg text-[#666] transition-all duration-150 hover:text-[#1a1a1a] hover:bg-black/[0.05] active:scale-90 dark:text-[#999] dark:hover:text-white dark:hover:bg-white/[0.08]"
                 onClick={onNextArticle}
                 disabled={!hasNextArticle}
               >
@@ -229,199 +243,15 @@ export function ArticleContent({
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
-          {/* Reading Settings */}
-          <DropdownMenu open={showSettings} onOpenChange={onShowSettingsChange}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
-                  >
-                    <Type className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>阅读设置</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-56 p-4 space-y-4">
-              {/* Font Size */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[#666] dark:text-[#999]">字体大小</label>
-                <div className="flex gap-1">
-                  {fontSizes.map((size) => (
-                    <button
-                      key={size.value}
-                      onClick={() => onFontSizeChange(size.value)}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-sm transition-colors",
-                        fontSize === size.value
-                          ? "bg-[#007AFF] text-white"
-                          : "bg-[#f0f0f0] text-[#666] hover:bg-[#e0e0e0] dark:bg-[#2a2a2a] dark:text-[#999] dark:hover:bg-[#333]"
-                      )}
-                    >
-                      {size.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Font Family */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[#666] dark:text-[#999]">字体样式</label>
-                <div className="space-y-1">
-                  {fontFamilies.map((font) => (
-                    <button
-                      key={font.value}
-                      onClick={() => onFontFamilyChange(font.value)}
-                      className={cn(
-                        "w-full px-3 py-2 rounded-lg text-sm text-left transition-colors",
-                        fontFamily === font.value
-                          ? "bg-[#007AFF] text-white"
-                          : "hover:bg-[#f0f0f0] dark:hover:bg-[#2a2a2a]"
-                      )}
-                    >
-                      <span className={font.className}>{font.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Line Height */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[#666] dark:text-[#999]">行间距</label>
-                <div className="flex gap-1">
-                  {lineHeightOptions.map((lh) => (
-                    <button
-                      key={lh.value}
-                      onClick={() => onLineHeightChange(lh.value)}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-xs transition-colors",
-                        lineHeight === lh.value
-                          ? "bg-[#007AFF] text-white"
-                          : "bg-[#f0f0f0] text-[#666] hover:bg-[#e0e0e0] dark:bg-[#2a2a2a] dark:text-[#999] dark:hover:bg-[#333]"
-                      )}
-                    >
-                      {lh.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Content Width */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[#666] dark:text-[#999]">内容宽度</label>
-                <div className="flex gap-1">
-                  {contentWidthOptions.map((w) => (
-                    <button
-                      key={w.value}
-                      onClick={() => onContentWidthChange(w.value)}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-xs transition-colors",
-                        contentWidth === w.value
-                          ? "bg-[#007AFF] text-white"
-                          : "bg-[#f0f0f0] text-[#666] hover:bg-[#e0e0e0] dark:bg-[#2a2a2a] dark:text-[#999] dark:hover:bg-[#333]"
-                      )}
-                    >
-                      {w.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
-                onClick={onToggleDarkMode}
-              >
-                {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{isDarkMode ? "切换亮色" : "切换暗色"}</TooltipContent>
-          </Tooltip>
-
-          <Separator
-            orientation="vertical"
-            className="h-4 mx-1 bg-[#e0e0e0] dark:bg-[#2a2a2a]"
-          />
-
-          {/* 朗读（TTS） */}
-          {tts.supported && article && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]",
-                    tts.speaking && "text-[#007AFF] dark:text-[#0a84ff]"
-                  )}
-                  onClick={() => {
-                    if (isGuest) {
-                      onShowRestriction("朗读");
-                      return;
-                    }
-                    if (tts.speaking) {
-                      tts.stop();
-                    } else {
-                      const text = htmlToSpeakableText(
-                        article.content || article.description
-                      );
-                      if (!text) {
-                        onShowRestriction("朗读");
-                        return;
-                      }
-                      tts.play(`${article.title}。${text}`);
-                    }
-                  }}
-                >
-                  {tts.speaking ? (
-                    <VolumeX className="h-4 w-4" />
-                  ) : (
-                    <Volume2 className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {tts.speaking ? "停止朗读" : "朗读文章"}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {/* Immersive Mode */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
-                onClick={onToggleImmersive}
-              >
-                {isImmersiveMode ? (
-                  <Minimize2 className="h-4 w-4" />
-                ) : (
-                  <Maximize2 className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{isImmersiveMode ? "退出沉浸" : "沉浸阅读"}</TooltipContent>
-          </Tooltip>
-
-          {/* Actions */}
+        <div className="flex items-center gap-0.5">
+          {/* 收藏：跟「这篇内容」直接相关，留在工具栏 */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  "h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]",
+                  "h-9 w-9 rounded-lg text-[#666] transition-all duration-150 hover:bg-black/[0.05] hover:text-[#1a1a1a] active:scale-90 dark:text-[#999] dark:hover:bg-white/[0.08] dark:hover:text-white",
                   article?.isFavorited && "text-[#FFB800] dark:text-[#FFB800]"
                 )}
                 onClick={() => {
@@ -436,7 +266,7 @@ export function ArticleContent({
               >
                 <Bookmark
                   className={cn(
-                    "h-4 w-4",
+                    "h-[18px] w-[18px]",
                     article?.isFavorited && "fill-[#FFB800]"
                   )}
                 />
@@ -445,156 +275,88 @@ export function ArticleContent({
             <TooltipContent>{article?.isFavorited ? "取消收藏" : "收藏"}</TooltipContent>
           </Tooltip>
 
-          {/* 文章标签 */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]",
-                      articleTags.length > 0 && "text-[#007AFF]"
-                    )}
-                  >
-                    <TagIcon className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {articleTags.length > 0
-                  ? `标签（${articleTags.length}）`
-                  : "添加标签"}
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-52">
-              {allTags.length === 0 && (
-                <div className="px-2 py-1.5 text-[12px] text-[#999]">
-                  还没有标签，在下方新建
-                </div>
-              )}
-              {allTags.map((tag) => {
-                const active = articleTags.some((t) => t.id === tag.id);
-                return (
-                  <DropdownMenuItem
-                    key={tag.id}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      if (isGuest) {
-                        onShowRestriction("标签");
-                        return;
-                      }
-                      if (active) {
-                        onDetachTag?.(tag.id);
-                      } else {
-                        onAttachTag?.(tag);
-                      }
-                    }}
-                  >
-                    <span
-                      className="mr-2 h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    <span className="flex-1 truncate text-[13px]">
-                      {tag.name}
-                    </span>
-                    {active && <Check className="h-3.5 w-3.5 text-[#007AFF]" />}
-                  </DropdownMenuItem>
-                );
-              })}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  if (isGuest) {
-                    onShowRestriction("标签");
-                    return;
-                  }
-                  // 用 prompt 而不是再开一个弹窗：建标签是个一步操作，
-                  // 单独做一个表单弹窗的复杂度会超过它带来的价值。
-                  const name = window.prompt("新标签名称（最多 20 字）");
-                  if (name && name.trim()) {
-                    onCreateTag?.(name.trim());
-                  }
-                }}
-              >
-                <Plus className="mr-2 h-3.5 w-3.5" />
-                <span className="text-[13px]">新建标签…</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* 推送 Kindle */}
-          {kindleEnabled && article && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
-                  disabled={kindlePushing}
-                  onClick={() => {
-                    if (isGuest) {
-                      onShowRestriction("推送 Kindle");
-                      return;
-                    }
-                    onPushToKindle?.(article.id);
-                  }}
-                >
-                  <BookOpen
-                    className={cn(
-                      "h-4 w-4",
-                      kindlePushing && "animate-pulse text-[#FF9900]"
-                    )}
-                  />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>推送到 Kindle</TooltipContent>
-            </Tooltip>
-          )}
-
+          {/* 沉浸：一个按钮切换阅读器的整个外壳，高频 */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
-                onClick={() => {
-                  // 复制原文链接给用户，而不是弹「分享成功」。
-                  // 这个项目没有接社交平台 SDK，能给的只有链接本身。
-                  if (!article?.link) return;
-                  void navigator.clipboard
-                    ?.writeText(article.link)
-                    .then(() => onNotify?.("原文链接已复制", "success"))
-                    .catch(() => onNotify?.("复制失败，请手动复制", "error"));
-                }}
+                className="h-9 w-9 rounded-lg text-[#666] transition-all duration-150 hover:bg-black/[0.05] hover:text-[#1a1a1a] active:scale-90 dark:text-[#999] dark:hover:bg-white/[0.08] dark:hover:text-white"
+                onClick={onToggleImmersive}
               >
-                <Share2 className="h-4 w-4" />
+                {isImmersiveMode ? (
+                  <Minimize2 className="h-[18px] w-[18px]" />
+                ) : (
+                  <Maximize2 className="h-[18px] w-[18px]" />
+                )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>复制原文链接</TooltipContent>
+            <TooltipContent>{isImmersiveMode ? "退出沉浸" : "沉浸阅读"}</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
-                asChild
-              >
-                <a
-                  href={article.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>原文链接</TooltipContent>
-          </Tooltip>
+          {/* 更多：字号、字体、行距、页宽、外观、朗读、标签、Kindle、分享、原文 */}
+          <ReaderMoreMenu
+            open={showSettings}
+            onOpenChange={onShowSettingsChange}
+            fontSize={fontSize}
+            fontFamily={fontFamily}
+            lineHeight={lineHeight}
+            contentWidth={contentWidth}
+            readerTheme={readerTheme}
+            onFontSizeChange={onFontSizeChange}
+            onFontFamilyChange={onFontFamilyChange}
+            onLineHeightChange={onLineHeightChange}
+            onContentWidthChange={onContentWidthChange}
+            onThemeChange={onReaderThemeChange}
+            ttsSupported={tts.supported}
+            ttsSpeaking={tts.speaking}
+            onToggleTts={() => {
+              if (isGuest) {
+                onShowRestriction("朗读");
+                return;
+              }
+              if (tts.speaking) {
+                tts.stop();
+                return;
+              }
+              if (!article) return;
+              const text = htmlToSpeakableText(article.content || article.description);
+              if (!text) {
+                onShowRestriction("朗读");
+                return;
+              }
+              tts.play(`${article.title}。${text}`);
+            }}
+            articleTags={articleTags}
+            allTags={allTags}
+            onAttachTag={onAttachTag}
+            onDetachTag={onDetachTag}
+            onCreateTag={onCreateTag}
+            kindleEnabled={kindleEnabled}
+            kindlePushing={kindlePushing}
+            onPushToKindle={() => {
+              if (isGuest) {
+                onShowRestriction("推送 Kindle");
+                return;
+              }
+              if (article) onPushToKindle?.(article.id);
+            }}
+            onShare={() => {
+              if (!article?.link) return;
+              void navigator.clipboard
+                ?.writeText(article.link)
+                .then(() => onNotify?.("原文链接已复制", "success"))
+                .catch(() => onNotify?.("复制失败，请手动复制", "error"));
+            }}
+            onOpenOriginal={
+              article?.link
+                ? () =>
+                    window.open(article.link, "_blank", "noopener,noreferrer")
+                : undefined
+            }
+            onToggleDarkMode={onToggleDarkMode}
+            isDarkMode={isDarkMode}
+          />
         </div>
       </div>
 
@@ -603,7 +365,7 @@ export function ArticleContent({
         {loading ? (
           <div
             className={cn(
-              "mx-auto px-8 py-16 space-y-6",
+              "mx-auto w-full px-4 sm:px-8 lg:px-12 py-10 space-y-6",
               getContentWidthClass(contentWidth)
             )}
           >
@@ -645,8 +407,10 @@ export function ArticleContent({
           </div>
         ) : (
           <article
+            key={article.id}
             className={cn(
-              "mx-auto px-8 py-12",
+              "mx-auto w-full px-4 sm:px-8 lg:px-12 pt-8 pb-16",
+              "animate-content-in",
               getContentWidthClass(contentWidth),
               getFontSizeClass(fontSize),
               getFontFamilyClass(fontFamily),

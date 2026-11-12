@@ -104,11 +104,32 @@ const config: Config = {
   				to: {
   					height: '0'
   				}
+  			},
+  			// 切文章时正文整体轻微上浮淡入。
+  			// 用户要的「质感」不是花哨转场 —— 换文章时画面猛地换掉会让人
+  			// 怀疑是不是点错了。给 260ms 的位移 + 淡入，眼睛能确认「内容变了」。
+  			'content-in': {
+  				from: { opacity: '0', transform: 'translateY(8px)' },
+  				to: { opacity: '1', transform: 'translateY(0)' }
+  			},
+  			// 面板/菜单淡入并轻微放大，配合 tailwindcss-animate 的 zoom 使用
+  			'soft-in': {
+  				from: { opacity: '0', transform: 'scale(0.97)' },
+  				to: { opacity: '1', transform: 'scale(1)' }
+  			},
+  			// 按压反馈：按下时轻微缩小，松开弹回
+  			'press': {
+  				'0%': { transform: 'scale(1)' },
+  				'50%': { transform: 'scale(0.96)' },
+  				'100%': { transform: 'scale(1)' }
   			}
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+  			'content-in': 'content-in 0.26s cubic-bezier(0.16, 1, 0.3, 1)',
+  			'soft-in': 'soft-in 0.16s cubic-bezier(0.16, 1, 0.3, 1)',
+  			'press': 'press 0.18s ease-out'
   		}
   	}
   },

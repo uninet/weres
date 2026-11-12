@@ -336,13 +336,23 @@ export default function ReaderPage() {
   // 键盘快捷键
   //
   // 单一入口，键位定义在 hooks/use-reader-shortcuts.ts：
-  //   m/k 上一篇，n/j/Space 下一篇，o 打开原文，s 收藏，v 已读切换，
-  //   t 主题，f 沉浸，r 刷新，, 设置，? 帮助，Esc 退出。
+  //   空格 向下翻一屏 / Shift+空格 向上翻一屏，
+  //   m/k 上一篇，n/j 下一篇，o 打开原文，s 收藏，v 已读切换，
+  //   t 外观，f 沉浸，r 刷新，, 更多设置，? 帮助，Esc 退出。
+  //
+  // 空格与 m/n 必须分开：空格是「这篇文章还没读完，继续往下看」，
+  // m/n 是「换一篇文章」。绑在一起的话，读到一半按空格会直接跳到下一篇。
   // 弹窗打开时禁用，避免 Esc 与面板关闭打架。
   useReaderShortcuts({
-    enabled: !showRestrictionModal,
+    enabled: !showRestrictionModal && !showSettings,
     onPrev: handlePrevArticle,
     onNext: handleNextArticle,
+    onPageDown: () => {
+      window.dispatchEvent(new CustomEvent("reader:page", { detail: "down" }));
+    },
+    onPageUp: () => {
+      window.dispatchEvent(new CustomEvent("reader:page", { detail: "up" }));
+    },
     onOpenOriginal: handleOpenOriginal,
     onToggleFavorite: handleToggleFavorite,
     onToggleRead: handleToggleRead,
@@ -438,6 +448,8 @@ export default function ReaderPage() {
               onFontFamilyChange={setFontFamilyForFeed}
               onLineHeightChange={setLineHeightForFeed}
               onContentWidthChange={setContentWidthForFeed}
+              readerTheme={readerTheme}
+              onReaderThemeChange={setReaderTheme}
               onShowRestriction={handleShowRestriction}
               onMarkReadByScroll={(id) => {
                 // 滚动读完后标记已读，并同步更新列表状态

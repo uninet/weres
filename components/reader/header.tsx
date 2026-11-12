@@ -45,7 +45,7 @@ export function Header({
   onThemeChange,
 }: HeaderProps) {
   return (
-    <header className="h-16 border-b border-[#e8e4df] dark:border-[#333] bg-white/80 dark:bg-[#1a1a1a]/90 backdrop-blur-md flex items-center justify-between px-6 shrink-0 sticky top-0 z-50">
+    <header className="h-14 border-b border-[#e8e4df] dark:border-[#333] bg-white/80 dark:bg-[#1a1a1a]/90 backdrop-blur-md flex items-center justify-between px-4 shrink-0 sticky top-0 z-50">
       <div className="flex items-center gap-4">
         <Link href="/" className="flex items-center gap-3 group">
           <div className="w-10 h-10 bg-gradient-to-br from-[#c9a962] to-[#a08040] rounded-lg flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow">

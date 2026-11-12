@@ -14,14 +14,14 @@ export function ShortcutHelp({ isOpen, onClose }: { isOpen: boolean; onClose: ()
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4 animate-in fade-in-0 duration-150"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="键盘快捷键"
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-[#1f1f1f]"
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl animate-in zoom-in-95 slide-in-from-bottom-2 duration-200 dark:bg-[#1f1f1f]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

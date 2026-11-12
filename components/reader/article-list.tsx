@@ -90,7 +90,7 @@ export function ArticleList({
       )}
     >
       {/* Header */}
-      <div className="h-14 px-4 flex items-center justify-between border-b border-[#e0e0e0] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1e]">
+      <div className="h-12 px-3 flex items-center justify-between border-b border-[#e0e0e0] dark:border-[#2a2a2a] bg-white dark:bg-[#1c1c1e]">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold text-[15px] text-[#1a1a1a] dark:text-white">
             文章
@@ -173,10 +173,13 @@ export function ArticleList({
                 onClick={() => onSelectArticle(article)}
                 className={cn(
                   "w-full text-left px-4 py-4 transition-all duration-200 group",
+                  // 点下去有轻微内缩反馈，避免「点了没反应」的错觉
+                  "active:scale-[0.995]",
+                  "animate-in fade-in-0 slide-in-from-left-1",
                   "hover:bg-[#f8f8f8] dark:hover:bg-[#252525]",
                   selectedArticle?.id === article.id
-                    ? "bg-[#f0f7ff] dark:bg-[#1a3a5c] border-l-4 border-l-[#007AFF]"
-                    : "border-l-4 border-l-transparent"
+                    ? "bg-[#007AFF]/[0.07] dark:bg-[#007AFF]/[0.18] border-l-[3px] border-l-[#007AFF]"
+                    : "border-l-[3px] border-l-transparent hover:border-l-[#ddd] dark:hover:border-l-[#444]"
                 )}
                 style={{ animationDelay: `${index * 30}ms` }}
               >

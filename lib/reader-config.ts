@@ -63,17 +63,25 @@ export function getLineHeightClass(lineHeight: string): string {
 
 // 获取内容宽度类名
 export function getContentWidthClass(contentWidth: string): string {
-  // 参照主流阅读器（QiReader、Reeder 等）的正文宽度：默认档约 900px，
-  // 太窄会频繁换行、太宽会导致每行字数过多影响回扫。
+  // 三档都必须留出足够宽的行长，但上限要能撑满大屏。
+  //
+  // 之前默认是 max-w-4xl（896px）：在一块 1440px 的屏幕上，正文两侧
+  // 各空出近 300px，看起来像「文章被挤在中间一小条」。用户要的是正文
+  // 「顶天立地」——不是无限宽（那会一行 200 字，眼睛找不到下一行），
+  // 而是把可用宽度真正用起来。
+  //
+  // 取值依据：中文正文舒适行长约 30–45 字。按 17px 字号算约 700–1000px，
+  // 所以「窄」给到 820px（约 38 字），「中」1120px（大屏下接近满宽），
+  // 「宽」不设上限（交给父容器和 padding 决定）。
   switch (contentWidth) {
     case "narrow":
-      return "max-w-2xl";
+      return "max-w-[52rem]";
     case "medium":
-      return "max-w-4xl";
+      return "max-w-[70rem]";
     case "wide":
-      return "max-w-5xl";
+      return "max-w-none";
     default:
-      return "max-w-4xl";
+      return "max-w-[70rem]";
   }
 }
 

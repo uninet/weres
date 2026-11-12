@@ -202,11 +202,19 @@ async function main() {
   }
 
   // ---------------- 文本转语音按钮 ----------------
-  record(
-    "H-01",
-    "朗读按钮存在",
-    (await page.locator("svg.lucide-volume2").count()) > 0
-  );
+  // 朗读按钮已经收进「更多」菜单（工具栏只留收藏/沉浸/更多三个）。
+  // 所以这里改成：打开「更多」→ 面板里要有「朗读全文」。
+  const moreTrigger = page.locator('button[title="更多设置"]').first();
+  let ttsVisible = false;
+  if ((await moreTrigger.count()) > 0) {
+    await moreTrigger.click();
+    await page.waitForTimeout(600);
+    ttsVisible =
+      (await page.locator('[role="menuitem"]').filter({ hasText: "朗读全文" }).count()) > 0;
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
+  }
+  record("H-01", "朗读入口在「更多」菜单里", ttsVisible);
 
   // ---------------- 市场订阅 toast ----------------
   await page.goto(`${BASE}/market`, { waitUntil: "networkidle" });
@@ -318,10 +326,20 @@ async function main() {
   await page.goto(`${BASE}/reader`, { waitUntil: "networkidle" });
   await page.waitForTimeout(3500);
 
-  const tagBtn = page.locator("button:has(svg.lucide-tag)").first();
-  if ((await tagBtn.count()) > 0) {
-    await tagBtn.click();
-    await page.waitForTimeout(1200);
+  // 标签入口同样收进了「更多」菜单，先开菜单再进「标签」子菜单
+  const moreForTag = page.locator('button[title="更多设置"]').first();
+  let tagOpened = false;
+  if ((await moreForTag.count()) > 0) {
+    await moreForTag.click();
+    await page.waitForTimeout(700);
+    const tagSub = page.locator('[role="menuitem"]').filter({ hasText: "标签" }).first();
+    if ((await tagSub.count()) > 0) {
+      await tagSub.hover();
+      await page.waitForTimeout(800);
+      tagOpened = true;
+    }
+  }
+  if (tagOpened) {
 
     const menuTexts = await page
       .locator('[role="menuitem"]')
@@ -341,7 +359,7 @@ async function main() {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(400);
   } else {
-    record("T-11", "阅读器有标签按钮", false, "没找到标签按钮");
+    record("T-11", "「更多」菜单里有标签入口", false, "没找到标签入口");
   }
 
 
