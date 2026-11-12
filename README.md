@@ -274,6 +274,7 @@ SMTP_FROM="you@qq.com"
 | GET | `/api/favorites` | 收藏列表 |
 | GET | `/api/history` | 阅读历史 |
 | GET | `/api/notifications` | 通知列表 |
+| POST | `/api/cron/digest` | 发送每日摘要邮件（需 `CRON_SECRET`） |
 | GET | `/api/market` | RSS 市场源列表 |
 | GET | `/api/kindle/push` | 读取推送状态与最近投递记录 |
 | POST | `/api/kindle/push` | 把一篇文章推到 Kindle |
@@ -337,15 +338,42 @@ npx prisma db seed
 - 限流是进程内内存实现（`lib/rate-limit.ts`），多实例部署时每个实例各算各的。
   单机自托管够用，集群部署需要换成 Redis 之类的共享存储。
 - 密码重置邮件依赖 SMTP。没配 SMTP 时「忘记密码」会明确说明发不出去并给出替代方案，不会假装已经发送。
-- 未读通知不会由 RSS 更新自动生成（需要另设定时任务）。
+- 站内通知在**同步时自动生成**（每个源每次同步一条「有 N 篇新文章」），但每日摘要邮件需要外部定时任务触发，见下面的「定时任务」一节。
 - Kindle 推送只保证「邮件成功交给 SMTP」；Amazon 侧的最终到达取决于发件域名信誉和白名单，服务端无从验证。
-- 通知只会由接口或种子数据写入，RSS 更新不会自动生成通知。
 - 契约测试（`tests/contract/`）需要先起服务，不在 CI 的默认检查里。
 - 全文抓取靠站点适配（`lib/rss-parser.ts` 里 36氪 / 少数派 / 虎嗅 / 极客公园 /
   爱范儿 / 品玩 / Solidot 各有选择器，其余走通用正文提取）。这些站的页面结构
   一改，对应适配就可能失灵，表现为「正文只有摘要那么短」。属预期内的维护成本。
 - 部分 RSS 的封面图指向防盗链或已删除的地址，前端加载失败时会直接不显示图片，
   列表项退化成纯文字（而不是留一个灰色空块）。
+
+## 定时任务（可选）
+
+两个需要外部调度器触发的任务。放在应用外，是因为 standalone 进程会重启、
+可能多实例，进程内定时器既不可靠也不好观测。
+
+```bash
+# 1) 定时同步所有订阅源
+curl -X POST http://localhost:3000/api/sync
+
+# 2) 每日摘要邮件（需要 SMTP 和 CRON_SECRET）
+curl -X POST http://localhost:3000/api/cron/digest \
+     -H "Authorization: Bearer $CRON_SECRET"
+```
+
+`CRON_SECRET` 没配置时 `/api/cron/digest` 返回 503（而不是默认放行）——
+这个接口要遍历所有用户发信，不能基于任何人的登录态。
+
+crontab 示例（每天早上 8 点发摘要，每 2 小时同步一次）：
+
+```cron
+0 8 * * *  curl -s -X POST http://localhost:3000/api/cron/digest -H "Authorization: Bearer $CRON_SECRET"
+0 */2 * * * curl -s -X POST http://localhost:3000/api/sync
+```
+
+只有同时满足以下三条的用户才会收到摘要：打开了「邮件摘要」开关、
+资料里有邮箱、且过去 24 小时内他订阅的源有新文章。
+
 
 ## 开发计划
 

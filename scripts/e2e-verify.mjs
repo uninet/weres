@@ -730,6 +730,92 @@ async function testPasswordReset() {
   );
 }
 
+async function testNotificationsAndPrefs() {
+  section("O. 通知生成与偏好设置");
+
+  // O-01 通知开关可读且落在服务端（不是 localStorage）
+  const before = await api("/api/profile");
+  record(
+    "O-01",
+    "个人资料返回通知偏好字段",
+    before.status === 200 &&
+      typeof before.body?.data?.notifyNewArticles === "boolean" &&
+      typeof before.body?.data?.emailDigest === "boolean",
+    `notifyNewArticles=${before.body?.data?.notifyNewArticles} emailDigest=${before.body?.data?.emailDigest}`
+  );
+
+  // O-02 关掉通知开关
+  const off = await api("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ notifyNewArticles: false }),
+  });
+  record(
+    "O-02",
+    "可以关闭新文章通知",
+    off.status === 200 && off.body?.data?.notifyNewArticles === false,
+    `值=${off.body?.data?.notifyNewArticles}`
+  );
+
+  // O-03 重新打开
+  const on = await api("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ notifyNewArticles: true }),
+  });
+  record(
+    "O-03",
+    "可以重新打开新文章通知",
+    on.status === 200 && on.body?.data?.notifyNewArticles === true,
+    `值=${on.body?.data?.notifyNewArticles}`
+  );
+
+  // O-04 通知列表可读（无论有无数据都要 200）
+  //
+  // 注意响应形状：这个接口直接返回 { notifications, pagination, unreadCount }，
+  // 不像新接口那样包一层 { success, data }。断言写在顶层而不是 data 下面。
+  const list = await api("/api/notifications?limit=50");
+  record(
+    "O-04",
+    "通知列表接口可读",
+    list.status === 200 && Array.isArray(list.body?.notifications),
+    `条数=${list.body?.notifications?.length ?? "无"}`
+  );
+
+  // O-05 同步后应该产生通知（订阅更新通知真的会写）
+  //
+  // 这里触发一次单源同步，然后看该用户的 FEED_UPDATE 通知数是否
+  // 不再为零 —— 这正是「通知页永远为空」的回归防线。
+  // 订阅接口按分组返回：{ data: { groups: { <groupId>: { group, subscriptions } } } }
+  const subs = await api("/api/feeds/subscriptions");
+  const groups = subs.body?.data?.groups || {};
+  const firstGroup = Object.values(groups)[0];
+  const feedId = firstGroup?.subscriptions?.[0]?.feedId;
+  if (!feedId) {
+    record("O-05", "同步后产生订阅更新通知", false, "没有可同步的订阅");
+    return;
+  }
+
+  const sync = await api(`/api/sync/${feedId}`, { method: "POST" });
+  // 该接口目前不支持 type 过滤，多取一些自己筛
+  const after = await api("/api/notifications?limit=50");
+  const feedUpdateCount =
+    after.body?.notifications?.filter((n) => n.type === "FEED_UPDATE").length ?? 0;
+  record(
+    "O-05",
+    "同步后产生订阅更新通知",
+    sync.status === 200 && (sync.body?.data?.newArticles > 0 ? feedUpdateCount > 0 : true),
+    `同步新增=${sync.body?.data?.newArticles ?? "?"} 通知数=${feedUpdateCount}`
+  );
+
+  // O-06 未配 CRON_SECRET 时摘要接口拒绝（503 而不是默认放行）
+  const cron = await api("/api/cron/digest", { method: "POST" });
+  record(
+    "O-06",
+    "摘要任务接口默认拒绝调用",
+    cron.status === 503 || cron.status === 401,
+    `status=${cron.status}`
+  );
+}
+
 async function testTags() {
   section("L. 文章标签");
 
@@ -862,6 +948,7 @@ async function main() {
     await testIdempotent();
     await testKindle();
     await testTags();
+    await testNotificationsAndPrefs();
     await testPasswordReset();
   } catch (error) {
     console.error("\n\x1b[31m执行中断：\x1b[0m", error);

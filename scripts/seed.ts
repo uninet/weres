@@ -189,7 +189,7 @@ async function main() {
   // 创建示例文章
   const articles = await Promise.all([
     prisma.article.upsert({
-      where: { guid: 'article-1' },
+      where: { feedId_guid: { feedId: feeds[0].id, guid: 'article-1' } },
       update: {},
       create: {
         feedId: feeds[0].id,
@@ -215,7 +215,7 @@ async function main() {
       },
     }),
     prisma.article.upsert({
-      where: { guid: 'article-2' },
+      where: { feedId_guid: { feedId: feeds[0].id, guid: 'article-2' } },
       update: {},
       create: {
         feedId: feeds[0].id,
@@ -238,7 +238,7 @@ async function main() {
       },
     }),
     prisma.article.upsert({
-      where: { guid: 'article-3' },
+      where: { feedId_guid: { feedId: feeds[1].id, guid: 'article-3' } },
       update: {},
       create: {
         feedId: feeds[1].id,
@@ -261,7 +261,7 @@ async function main() {
       },
     }),
     prisma.article.upsert({
-      where: { guid: 'article-4' },
+      where: { feedId_guid: { feedId: feeds[2].id, guid: 'article-4' } },
       update: {},
       create: {
         feedId: feeds[2].id,

@@ -139,8 +139,11 @@ export async function POST(req: Request) {
     for (const item of parsed.items.slice(0, 20)) {
       if (!item.title || !item.link) continue;
 
+      // guid 只在单个源内唯一（同源内可能被别的源用同样的值），
+      // 所以 upsert 的条件必须带上 feedId，不能只用 guid。
+      const guid = item.guid || item.link;
       await prisma.article.upsert({
-        where: { guid: item.guid || item.link },
+        where: { feedId_guid: { feedId: feed.id, guid } },
         update: {},
         create: {
           feedId: feed.id,
@@ -151,7 +154,7 @@ export async function POST(req: Request) {
           author: item.author || '',
           pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
           imageUrl: item.imageUrl,
-          guid: item.guid || item.link,
+          guid,
         },
       });
     }

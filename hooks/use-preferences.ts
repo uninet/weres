@@ -12,6 +12,11 @@ import { useCallback, useEffect, useState } from "react";
  *
  * 存储用 localStorage：这些是纯展示/交互偏好，换设备重建成本很低，
  * 不值得为每次拨动开关发一次写请求。
+ *
+ * 注意：通知相关的两个偏好（新文章通知 / 邮件摘要）**不在这里**。
+ * 它们的读取方是服务端的同步任务和定时任务，读不到浏览器存储，
+ * 因此落在 User 表上（notifyNewArticles / emailDigest），
+ * 由设置页直接调 PATCH /api/profile。
  */
 export interface UserPreferences {
   /** 打开文章时自动标记已读 */
@@ -24,10 +29,6 @@ export interface UserPreferences {
   autoSync: boolean;
   /** 自动同步间隔（分钟） */
   syncInterval: number;
-  /** 浏览器通知 */
-  notifications: boolean;
-  /** 邮件摘要 */
-  emailDigest: boolean;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -36,8 +37,6 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   compactView: false,
   autoSync: false,
   syncInterval: 30,
-  notifications: false,
-  emailDigest: false,
 };
 
 const STORAGE_KEY = "werss:preferences";

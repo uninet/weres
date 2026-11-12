@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import { prisma } from './prisma';
 import { sanitizeArticleHtml } from './sanitize';
 import { assertSafeOutboundUrl } from './url-safety';
+import { notifyFeedUpdates } from './notify';
 
 const parser = new Parser({
   headers: {
@@ -903,6 +904,9 @@ export async function syncFeed(feedId: string): Promise<{ success: boolean; mess
 
     let addedCount = 0;
     const errors: string[] = [];
+    // 收集本次新增的文章，同步结束后统一生成一条「有 N 篇新文章」通知。
+    // 不在循环里直接写通知：一次同步十几篇会写十几条通知，把收件箱淹掉。
+    const addedArticles: { id: string; title: string }[] = [];
 
     // 处理文章
     for (const item of rssData.items.slice(0, 15)) { // 只处理最新的 15 篇
@@ -984,7 +988,7 @@ export async function syncFeed(feedId: string): Promise<{ success: boolean; mess
         const pubDate = item.isoDate ? new Date(item.isoDate) :
                        item.pubDate ? new Date(item.pubDate) : new Date();
 
-        await prisma.article.create({
+        const created = await prisma.article.create({
           data: {
             feedId: feedId,
             title: item.title,
@@ -996,7 +1000,9 @@ export async function syncFeed(feedId: string): Promise<{ success: boolean; mess
             imageUrl: imageUrl || null,
             guid: item.guid || item.link,
           },
+          select: { id: true, title: true },
         });
+        addedArticles.push(created);
 
         addedCount++;
       } catch (itemError) {
@@ -1017,6 +1023,12 @@ export async function syncFeed(feedId: string): Promise<{ success: boolean; mess
         lastError: errors.length > 0 ? errors.join('; ') : null,
       },
     });
+
+    // 通知在文章入库之后生成：先把内容落库，再告诉用户「有更新」。
+    // 顺序反过来的话，用户点通知跳过去可能发现文章还不存在。
+    if (addedArticles.length > 0) {
+      await notifyFeedUpdates(feedId, addedArticles);
+    }
 
     return {
       success: true,

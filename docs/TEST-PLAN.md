@@ -22,6 +22,7 @@
 | T | 文章标签 | 创建/幂等、打标签、读回、计数、越权 404、移除 |
 | M | 密码重置 | 未配 SMTP 的 503、不泄漏账号存在性、无效/过期 token、弱密码、完整链路、一次性 |
 | N | 用户偏好设置 | 紧凑视图、未读角标、自动标记已读、持久化、自动同步 |
+| O | 通知生成与偏好 | 通知开关落库、同步后自动生成通知、摘要接口鉴权 |
 
 ## 2. 环境准备
 
@@ -156,6 +157,20 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | J-03 | 非 root | `docker compose exec werss id` 显示 uid=1001 |
 | J-04 | 数据库可连 | 健康检查里 `database:"ok"`，库文件在 `/data/werss.db` |
 
+### O. 通知生成与偏好设置
+
+| 用例 | 说明 | 期望 |
+|------|------|------|
+| O-01 | `/api/profile` 返回 `notifyNewArticles` / `emailDigest` | 两个字段都是布尔值 |
+| O-02 | 关闭新文章通知 | `notifyNewArticles=false` 落库 |
+| O-03 | 重新打开 | `notifyNewArticles=true` 落库 |
+| O-04 | 通知列表可读 | 200，`notifications` 是数组 |
+| O-05 | 同步后产生订阅更新通知 | 有新增时出现 `FEED_UPDATE` 通知 |
+| O-06 | 摘要任务默认拒绝 | 未配 `CRON_SECRET` 时 503 |
+
+这两个开关必须存服务端而不是 localStorage：读它们的是服务端的同步任务
+（生成通知）和定时任务（发摘要），浏览器存储它们读不到。
+
 ### M. 密码重置
 
 | ID | 用例 | 步骤 | 期望 |
@@ -262,7 +277,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 ## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：46/46 通过（未配 SMTP）/ 49/49 通过（配了 SMTP）
+npm run verify:e2e   → 结果：58/58 通过（未配 SMTP）/ 61/61 通过（配了 SMTP）
 npm run verify:ui    → 结果：21/21 通过
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

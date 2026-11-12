@@ -19,6 +19,10 @@ const updateProfileSchema = z.object({
     .max(120)
     .optional()
     .or(z.literal("")),
+  // 这两个是服务端偏好：生成通知的是同步任务、发摘要的是定时任务，
+  // 它们都读不到浏览器的 localStorage，所以必须落在数据库里。
+  notifyNewArticles: z.boolean().optional(),
+  emailDigest: z.boolean().optional(),
 });
 
 /**
@@ -48,6 +52,8 @@ export async function GET(req: Request) {
         avatar: true,
         bio: true,
         kindleEmail: true,
+        notifyNewArticles: true,
+        emailDigest: true,
         createdAt: true,
         _count: {
           select: {
@@ -123,6 +129,8 @@ export async function PATCH(req: Request) {
       bio?: string | null;
       avatar?: string | null;
       kindleEmail?: string | null;
+      notifyNewArticles?: boolean;
+      emailDigest?: boolean;
     } = {};
 
     if (parsed.nickname !== undefined) data.nickname = parsed.nickname;
@@ -130,6 +138,12 @@ export async function PATCH(req: Request) {
     if (parsed.avatar !== undefined) data.avatar = parsed.avatar || null;
     if (parsed.kindleEmail !== undefined) {
       data.kindleEmail = parsed.kindleEmail || null;
+    }
+    if (parsed.notifyNewArticles !== undefined) {
+      data.notifyNewArticles = parsed.notifyNewArticles;
+    }
+    if (parsed.emailDigest !== undefined) {
+      data.emailDigest = parsed.emailDigest;
     }
 
     if (Object.keys(data).length === 0) {
@@ -148,6 +162,8 @@ export async function PATCH(req: Request) {
         avatar: true,
         bio: true,
         kindleEmail: true,
+        notifyNewArticles: true,
+        emailDigest: true,
       },
     });
 

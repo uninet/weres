@@ -38,6 +38,77 @@ export default function SettingsPage() {
   const { preferences: settings, update: updatePreference, toggle: handleToggle } =
     usePreferences();
 
+  /**
+   * 通知相关的两个开关必须存服务端。
+   *
+   * 其余开关（紧凑视图、未读角标、自动已读…）都是浏览器里的行为，
+   * 存 localStorage 就够了。但「新文章通知」是同步任务在服务端生成
+   * 通知时读的，「邮件摘要」是定时任务发信时读的 —— 它们都读不到
+   * 浏览器存储。之前这两个开关也放在 localStorage 里，等于完全没接上：
+   * 拨了开关，服务端照旧按默认值行为，通知页永远为空。
+   *
+   * 服务端字段名与本地键名一致，直接透传。
+   */
+  const [serverNotify, setServerNotify] = useState<boolean | null>(null);
+  const [serverDigest, setServerDigest] = useState<boolean | null>(null);
+  const [serverPrefsLoading, setServerPrefsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setServerPrefsLoading(true);
+    fetch("/api/profile")
+      .then((res) => res.json())
+      .then((payload) => {
+        if (cancelled) return;
+        if (payload?.success && payload.data) {
+          setServerNotify(Boolean(payload.data.notifyNewArticles));
+          setServerDigest(Boolean(payload.data.emailDigest));
+        }
+      })
+      .catch((error) => {
+        // 加载失败就保持 null（开关显示本地值），不弹错 ——
+        // 这是一个可选偏好，不该让用户刚进设置页就看到红字。
+        console.error("加载通知偏好在失败:", error);
+      })
+      .finally(() => {
+        if (!cancelled) setServerPrefsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveServerPreference = async (
+    key: "notifyNewArticles" | "emailDigest",
+    value: boolean
+  ) => {
+    // 乐观更新：开关立刻动，失败再回滚并提示。
+    // 等服务端返回再动开关的话，网络慢时用户会觉得按钮卡住了。
+    const prevNotify = serverNotify;
+    const prevDigest = serverDigest;
+    if (key === "notifyNewArticles") setServerNotify(value);
+    else setServerDigest(value);
+
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok || !payload?.success) {
+        throw new Error(payload?.message || "保存失败");
+      }
+      toast.success("通知设置已保存");
+    } catch (error) {
+      if (key === "notifyNewArticles") setServerNotify(prevNotify);
+      else setServerDigest(prevDigest);
+      toast.error(
+        error instanceof Error ? `保存失败：${error.message}` : "保存失败"
+      );
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -308,8 +379,9 @@ export default function SettingsPage() {
                   <p className="text-sm text-gray-500">接收新文章提醒</p>
                 </div>
                 <Switch 
-                  checked={settings.notifications} 
-                  onCheckedChange={() => handleToggle('notifications')}
+                  checked={serverNotify ?? false}
+                  disabled={serverPrefsLoading}
+                  onCheckedChange={(checked) => void saveServerPreference('notifyNewArticles', checked)}
                 />
               </div>
               <Separator />
@@ -319,8 +391,9 @@ export default function SettingsPage() {
                   <p className="text-sm text-gray-500">每日发送文章摘要邮件</p>
                 </div>
                 <Switch 
-                  checked={settings.emailDigest} 
-                  onCheckedChange={() => handleToggle('emailDigest')}
+                  checked={serverDigest ?? false}
+                  disabled={serverPrefsLoading}
+                  onCheckedChange={(checked) => void saveServerPreference('emailDigest', checked)}
                 />
               </div>
             </CardContent>

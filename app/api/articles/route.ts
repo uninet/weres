@@ -149,7 +149,18 @@ export async function GET(req: Request) {
     const total = await prisma.article.count({ where });
 
     // 获取文章列表
-    const articles = await prisma.article.findMany({
+    //
+    // 为什么要多取一些：同一篇文章经常出现在多个源里（某站的「全文 RSS」
+    // 和「摘要 RSS」、聚合站转载、以及 guid 退化成 link 的源）。实测库里
+    // 7723 篇文章里有 39 组这样的重复 link。用户同时订阅这几个源时，
+    // 中栏会把同一篇文章列两遍 —— 点开右边内容一模一样，很容易以为是 bug。
+    //
+    // SQLite + Prisma 没有一个既尊重复杂 where 又能去重的写法，
+    // 所以这里多取 2 倍再按 link 去重、最后截到 pageSize。
+    // 极端情况下（某一页全是重复）这一页会比 pageSize 少几条，
+    // 比出现重复条目更可接受。
+    const fetchLimit = Math.min(pageSize * 2, MAX_PAGE_SIZE * 2);
+    const rawArticles = await prisma.article.findMany({
       where,
       include: {
         feed: {
@@ -173,8 +184,19 @@ export async function GET(req: Request) {
         pubDate: sortOrder,
       },
       skip: (page - 1) * pageSize,
-      take: pageSize,
+      take: fetchLimit,
     });
+
+    // 按 link 去重，保留先出现的（列表已按 pubDate 排好序，
+    // 先出现的就是排序上更靠前的那一篇）。
+    const seenLinks = new Set<string>();
+    const articles = rawArticles
+      .filter((article) => {
+        if (seenLinks.has(article.link)) return false;
+        seenLinks.add(article.link);
+        return true;
+      })
+      .slice(0, pageSize);
 
     // 计算未读数量
     const unreadCount = await prisma.article.count({

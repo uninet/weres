@@ -22,6 +22,18 @@ model User {
   /// `xxx@kindle.com`（国际）/ `xxx@kindle.cn`（中国），
   /// 用户填进来后由服务端代发文章。
   kindleEmail   String?   @map("kindle_email")
+  /// 是否为新文章生成站内通知。
+  ///
+  /// 这是「总开关」，Subscription.isNotify 是「单源开关」——
+  /// 两者都开着才会为该源的新文章写通知。存在数据库而不是
+  /// localStorage，因为生成通知的是服务端同步任务，它读不到浏览器。
+  notifyNewArticles Boolean @default(true) @map("notify_new_articles")
+  /// 是否接收每日摘要邮件。
+  ///
+  /// 打开后只是「授权发送」，真正发送由外部定时任务调用
+  /// POST /api/cron/digest 触发（见 README）。放在服务端是因为
+  /// 发送方是定时任务，同样读不到 localStorage。
+  emailDigest   Boolean   @default(false) @map("email_digest")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
@@ -125,7 +137,7 @@ model Article {
   author      String?
   pubDate     DateTime  @map("pub_date")
   imageUrl    String?   @map("image_url")
-  guid        String?   @unique
+  guid        String?
   createdAt   DateTime  @default(now()) @map("created_at")
 
   feed          Feed           @relation(fields: [feedId], references: [id], onDelete: Cascade)
@@ -134,9 +146,20 @@ model Article {
   articleTags   ArticleTag[]
   kindleDeliveries KindleDelivery[]
 
+  /// guid 不能全局唯一。
+  ///
+  /// 同一个 guid 只在一个源内唯一：两个源（比如某站的「全文 RSS」和
+  /// 「摘要 RSS」）会给出相同的 guid/link，甚至很多源根本没有 guid，
+  /// 代码会退化成 guid = link。此时全局唯一会让第二个源的文章插入时
+  /// 撞唯一约束、被 catch 吞掉当成同步错误 —— 表现为「订阅了但一篇都
+  /// 没有」，而且日志里只有一句重复键错误。
+  ///
+  /// 跨源重复展示的问题在查询层解决（按 link 去重），不在写入层拦。
+  @@unique([feedId, guid])
   @@index([feedId])
   @@index([pubDate])
   @@index([createdAt])
+  @@index([link])
   @@map("articles")
 }
 
