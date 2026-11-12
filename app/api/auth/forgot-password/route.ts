@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { getSmtpConfig, getTransporter } from "@/lib/kindle";
 import { z } from "zod";
 import crypto from "crypto";
-import { checkRateLimit, getClientIdentifier, rateLimitConfigs } from "@/lib/rate-limit";
+import {
+  checkRateLimit,
+  checkGlobalRateLimit,
+  getClientIdentifier,
+  rateLimitConfigs,
+} from "@/lib/rate-limit";
 
 // 要读写数据库与发信，绝不能被构建期预渲染
 export const dynamic = "force-dynamic";
@@ -31,10 +36,18 @@ const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 小时
  */
 export async function POST(req: Request) {
   try {
-    // 重置邮件是最容易被拿来当免费发信机的接口，限制比登录更严
+    // 重置邮件是最容易被拿来当免费发信机的接口，限制比登录更严。
+    //
+    // 这里只能按 IP 限流（邮箱在 body 里，伪造一个没注册的邮箱就绕过了），
+    // 而 X-Forwarded-For 客户端可伪造 —— 所以必须再叠一层全局上限，
+    // 否则换 IP 就能把这台实例当作发信机用。
+    const globalRate = checkGlobalRateLimit(
+      "forgot-password",
+      rateLimitConfigs.globalForgotPassword
+    );
     const identifier = getClientIdentifier(req);
     const rate = checkRateLimit(`forgot:${identifier}`, rateLimitConfigs.strict);
-    if (!rate.success) {
+    if (!rate.success || !globalRate.success) {
       return NextResponse.json(
         { success: false, message: "请求过于频繁，请稍后再试" },
         { status: 429 }

@@ -241,11 +241,19 @@ model Notification {
   @@map("notifications")
 }
 
+/// 登录审计日志。
+///
+/// 登录接口每次成功认证都会写一条（见 app/api/auth/login/route.ts）。
+/// 写失败不影响登录本身 —— 拿不到 IP/UA 不该把用户挡在门外。
 model LoginLog {
   id          String   @id @default(cuid())
   userId      String   @map("user_id")
+  /// 客户端 IP（来自 getClientIdentifier，已考虑 X-Forwarded-For）
   ipAddress   String   @map("ip_address")
+  /// 浏览器 User-Agent，截断到 500 字符防超长脏数据
   userAgent   String   @map("user_agent")
+  /// 预留的设备描述字段；当前留空（解析 UA 需要额外依赖，
+  /// 而 ip + userAgent + loginAt 已足够回答「何时从哪台机器登录」）
   deviceInfo  String?  @map("device_info")
   loginAt     DateTime @default(now()) @map("login_at")
 

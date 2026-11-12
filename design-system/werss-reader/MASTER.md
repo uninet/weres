@@ -1,5 +1,16 @@
 # Design System Master File
 
+> ⚠️ **本目录是设计阶段的配色/排版提案，不是当前实现的规范。**
+>
+> 这份文档里的色板（Primary `#18181B`、Accent `#EC4899`）与最终实现不同：
+> 实际主题用的是 `#007AFF` 主色与米色底 `#f8f6f3`，并在
+> `app/article-content.css` 里实现了浅色 / 米黄 / 电子墨水 / 深色四档可切换主题。
+>
+> 想看现在的实际样式，读 `app/globals.css`、`app/article-content.css`
+> 与 `tailwind.config.ts`。**不要按这里的色值改代码。**
+>
+> 记录时间：2026-11-12
+
 > **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
 > If that file exists, its rules **override** this Master file.
 > If not, strictly follow the rules below.

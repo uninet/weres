@@ -83,6 +83,28 @@ export async function POST(req: Request) {
       );
     }
 
+    // 记录登录日志。
+    //
+    // LoginLog 表建了很久但一直没有写入方 —— 表在那、索引在那、
+    // 关系也在那，就是没人填。安全上有两个用处：用户能看出「这个账号
+    // 在哪些地方登录过」，异常登录时也有据可查。
+    //
+    // 这一步失败不影响登录：拿不到 IP/UA 不该把用户挡在门外。
+    try {
+      await prisma.loginLog.create({
+        data: {
+          userId: user.id,
+          ipAddress: getClientIdentifier(req),
+          userAgent: req.headers.get("user-agent")?.slice(0, 500) || "unknown",
+          // deviceInfo 留空：解析 UA 需要额外依赖，而这里的信息
+          // 已经足够回答「什么时候、从哪台机器登录过」。
+          deviceInfo: null,
+        },
+      });
+    } catch (logError) {
+      console.error("记录登录日志失败:", logError);
+    }
+
     // 生成 JWT token
     const token = await createToken({
       id: user.id,

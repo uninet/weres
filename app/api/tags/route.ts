@@ -137,3 +137,63 @@ export async function POST(req: Request) {
     );
   }
 }
+
+/**
+ * DELETE /api/tags?id=xxx
+ *
+ * 删除标签。关联的 ArticleTag 由 schema 里的 onDelete: Cascade 自动清掉
+ * （`ArticleTag.tag` 上写了 `onDelete: Cascade`），所以这里不用手工清理
+ * 中间表 —— 手工清理反而容易漏、容易在事务边界上出错。
+ *
+ * 必须先查归属：直接用 `delete({ where: { id } })` 会让任何人按 id
+ * 删掉别人的标签。
+ */
+export async function DELETE(req: Request) {
+  try {
+    const auth = await requireAuth(req);
+    if (auth.error) {
+      return NextResponse.json(auth.error, { status: auth.status });
+    }
+    const { user, isGuest } = auth;
+
+    if (isGuest) {
+      return NextResponse.json(
+        { success: false, message: "访客模式不能删除标签" },
+        { status: 403 }
+      );
+    }
+
+    const id = new URL(req.url).searchParams.get("id");
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: "缺少标签 id" },
+        { status: 400 }
+      );
+    }
+
+    const existing = await prisma.tag.findFirst({
+      where: { id, userId: user.id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, message: "标签不存在" },
+        { status: 404 }
+      );
+    }
+
+    await prisma.tag.delete({ where: { id } });
+
+    return NextResponse.json({
+      success: true,
+      message: "标签已删除",
+    });
+  } catch (error) {
+    console.error("Delete tag error:", error);
+    return NextResponse.json(
+      { success: false, message: "删除标签失败" },
+      { status: 500 }
+    );
+  }
+}

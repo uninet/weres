@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { validateRSSUrl, extractFavicon } from "@/lib/rss-parser";
 import { UnsafeUrlError } from "@/lib/url-safety";
 import { z } from "zod";
-import { getClientIdentifier, checkRateLimit, rateLimitConfigs } from "@/lib/rate-limit";
+import { getClientIdentifier, checkRateLimit, checkGlobalRateLimit, rateLimitConfigs } from "@/lib/rate-limit";
 
 // 这个接口要读请求头做限流标识，不能被预渲染
 export const dynamic = "force-dynamic";
@@ -17,10 +17,19 @@ export async function POST(req: Request) {
     const { url } = validateSchema.parse(body);
 
     // 速率限制 - 防止滥用
+    //
+    // 两层：单 IP 一层负责公平（防一个访客把额度占满），
+    // 全局一层负责安全 —— X-Forwarded-For 是客户端可控的，
+    // 只按 IP 限流的话，每次换一个伪造 IP 就绕过了，而这个接口
+    // 每次都会真的去 fetch 一个外网地址。
+    const globalLimit = checkGlobalRateLimit(
+      "validate",
+      rateLimitConfigs.globalValidate
+    );
     const identifier = `validate:${getClientIdentifier(req)}`;
     const rateLimit = checkRateLimit(identifier, rateLimitConfigs.generous);
 
-    if (!rateLimit.success) {
+    if (!rateLimit.success || !globalLimit.success) {
       return NextResponse.json(
         {
           success: false,
@@ -30,7 +39,7 @@ export async function POST(req: Request) {
         {
           status: 429,
           headers: {
-            "X-RateLimit-Limit": "5",
+            "X-RateLimit-Limit": "20",
             "X-RateLimit-Remaining": "0",
             "X-RateLimit-Reset": rateLimit.resetTime.toString(),
           },

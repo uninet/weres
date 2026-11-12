@@ -75,22 +75,69 @@ export function checkRateLimit(
 
 /**
  * 获取客户端标识符（IP 地址）
+ *
+ * ⚠️ 这个值**可以被客户端伪造**，只适合用来做「同一访客不要连点」这类
+ * 公平性限流，**不能当作安全边界**。
+ *
+ * 原因：Next.js 的 Route Handler 拿不到 TCP 连接的真实对端地址，
+ * 只能读 `X-Forwarded-For`。实测确认 Next 会把这个头**原样透传**：
+ * 客户端发 `X-Forwarded-For: 1.1.1.1` 服务端就读到 `1.1.1.1`，
+ * 发 `1.1.1.1, 2.2.2.2` 就读到整串，中间不会插入真实 IP。
+ *
+ * 因此只有两种用法是安全的：
+ *  1. 反代的后面（nginx/Caddy）且反代自己覆盖了这个头 —— 设 TRUST_PROXY=true，
+ *     此时取最后一跳（反代填的），而不是客户端伪造的第一跳。
+ *  2. 不把它当唯一防线 —— 关键接口必须再叠一层不依赖 IP 的全局上限
+ *     （见下面的 checkGlobalRateLimit）。伪造 IP 也顶不破全局桶。
  */
 export function getClientIdentifier(req: Request): string {
-  // 从 X-Forwarded-For 头获取 IP
+  const trustProxy = process.env.TRUST_PROXY === "true";
   const forwardedFor = req.headers.get("x-forwarded-for");
+
   if (forwardedFor) {
-    return forwardedFor.split(",")[0].trim();
+    const hops = forwardedFor
+      .split(",")
+      .map((part) => part.trim())
+      // 空段和明显不是地址的段直接丢掉，避免用 "unknown" 之类的值当 key
+      .filter((part) => part.length > 0);
+
+    if (hops.length > 0) {
+      // 反代模式下取最后一跳：那是你自己的反代填的，客户端改不到。
+      // 非反代模式只能取第一跳 —— 虽然可伪造，但至少让正常用户之间不互相挤占。
+      return trustProxy ? hops[hops.length - 1] : hops[0];
+    }
   }
 
-  // 从 X-Real-IP 头获取 IP
   const realIp = req.headers.get("x-real-ip");
   if (realIp) {
     return realIp;
   }
 
-  // 返回匿名标识
   return "anonymous";
+}
+
+/**
+ * 全局速率上限：**不依赖任何客户端可控的输入**。
+ *
+ * 用于兜住「按 IP 限流但 IP 可伪造」的漏洞。即使攻击者每次换一个
+ * 伪造的 X-Forwarded-For，所有请求仍然共享同一个计数桶，
+ * 因此无法把接口放大成免费的抓取代理 / 发信机。
+ *
+ * 代价是同一时间窗内所有用户共享额度 —— 所以额度要按「整个实例
+ * 能承受多少」来设，而不是按「单个用户能用多少」。
+ */
+export function checkGlobalRateLimit(
+  name: string,
+  config: RateLimitConfig
+): { success: boolean; remaining: number; resetTime: number } {
+  return checkRateLimit(`__global__:${name}`, config);
+}
+
+/**
+ * 仅供测试使用：清空全部计数。
+ */
+export function __resetAllRateLimits(): void {
+  store.clear();
 }
 
 /**
@@ -104,38 +151,6 @@ export function resetRateLimit(identifier: string): void {
   store.delete(identifier);
 }
 
-/**
- * 速率限制中间件
- */
-export function withRateLimit<T extends (...args: any[]) => any>(
-  handler: T,
-  config: RateLimitConfig = { windowMs: 60 * 1000, max: 10 }
-) {
-  return async function wrappedHandler(req: Request, ...args: any[]) {
-    const identifier = getClientIdentifier(req);
-    const result = checkRateLimit(identifier, config);
-
-    if (!result.success) {
-      return new Response(
-        JSON.stringify({
-          error: "请求过于频繁",
-          message: `请稍后再试，剩余时间：${Math.ceil((result.resetTime - Date.now()) / 1000)}秒`,
-        }),
-        {
-          status: 429,
-          headers: {
-            "Content-Type": "application/json",
-            "X-RateLimit-Limit": config.max.toString(),
-            "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": result.resetTime.toString(),
-          },
-        }
-      );
-    }
-
-    return handler(req, ...args);
-  };
-}
 
 /**
  * 预定义的速率限制配置
@@ -162,4 +177,17 @@ export const rateLimitConfigs = {
 
   // API 读取操作
   read: { windowMs: 1000, max: 30 }, // 1 秒内 30 次
+
+  // 全局兜底：整个实例共享，用来防「伪造 X-Forwarded-For 绕过按 IP 限流」。
+  //
+  // 这个接口每次都会真的去 fetch 一个外网地址，攻击者换 IP 就能无限刷，
+  // 等于把服务端变成免费抓取代理。单 IP 额度（generous）负责让正常用户
+  // 之间别互相挤占，全局额度负责让整个实例的抓取总量有上界。
+  globalValidate: { windowMs: 60 * 1000, max: 120 }, // 全实例 2 次/秒
+
+  // 忘记密码会真的发一封邮件，没有全局上限时换 IP 就能把实例当发信机用。
+  globalForgotPassword: { windowMs: 60 * 1000, max: 30 },
+
+  // 注册同理：换 IP 就能无限建号。
+  globalRegister: { windowMs: 60 * 1000, max: 60 },
 };

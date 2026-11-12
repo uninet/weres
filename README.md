@@ -134,6 +134,7 @@ docker compose logs -f werss
 | `APP_PORT` | `3000` | 宿主机映射端口 |
 | `ALLOW_GUEST_MODE` | `false` | 是否启用共享访客账号 |
 | `ALLOW_PRIVATE_FEED_URLS` | `false` | 允许订阅内网地址的源（自建 RSSHub 时开） |
+| `TRUST_PROXY` | `false` | 部署在反向代理后设为 `true`，限流取反代追加的真实 IP |
 | `SEED_ON_FIRST_BOOT` | `true` | 空库时是否自动导入演示数据 |
 | `NEXTAUTH_URL` | `http://localhost:3000` | 站点对外地址 |
 | `SMTP_HOST` 等 | 未设置 | 配置后才启用 Kindle 推送，见下方说明 |
@@ -165,6 +166,7 @@ node .next/standalone/server.js
 | `NEXTAUTH_URL` | 否 | 站点地址，用于 Cookie 与回跳 |
 | `ALLOW_GUEST_MODE` | 否 | `true` 时未登录用户以共享访客身份浏览 |
 | `ALLOW_PRIVATE_FEED_URLS` | 否 | `true` 时允许订阅内网/私有网段的源；默认拒绝以防 SSRF |
+| `TRUST_PROXY` | 否 | `true` 时从 `X-Forwarded-For` 取最后一跳（反代填的真实 IP）；无反代时保持默认 |
 | `NODE_ENV` | 否 | `development` / `production` |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | 否 | Kindle 推送用。不配则该功能隐藏，不影响其他部分 |
 
@@ -244,6 +246,10 @@ SMTP_FROM="you@qq.com"
 ├── data/
 │   └── market-feeds.json      # RSS 市场目录（894 个源的 url/标题/分类）
 ├── types/                     # 共享类型
+├── docs/
+│   └── TEST-PLAN.md           # 测试计划与全部验收用例
+├── specs/                     # 设计阶段的原始规格（已过时，见目录内说明）
+├── design-system/             # 设计阶段的配色提案（已过时，见目录内说明）
 ├── Dockerfile / docker-compose.yml / docker-entrypoint.sh
 ├── vitest.config.ts / playwright.config.ts
 └── .github/workflows/         # CI（类型检查 + lint + 构建 + 单元测试）
@@ -279,7 +285,7 @@ SMTP_FROM="you@qq.com"
 | GET | `/api/kindle/push` | 读取推送状态与最近投递记录 |
 | POST | `/api/kindle/push` | 把一篇文章推到 Kindle |
 | GET/PATCH | `/api/profile` | 读写个人资料（含 Kindle 邮箱） |
-| GET/POST | `/api/tags` | 标签列表（含文章数）/ 新建标签 |
+| GET/POST/DELETE | `/api/tags` | 标签列表（含文章数）/ 新建标签 / 删除标签 |
 | GET/POST/DELETE | `/api/articles/:id/tags` | 读写某篇文章的标签 |
 | GET | `/api/health` | 健康检查（含数据库探活） |
 
@@ -313,6 +319,14 @@ SMTP_FROM="you@qq.com"
   已知局限：DNS 解析与实际连接之间存在时间窗，理论上存在 DNS rebinding 攻击。
   彻底封堵需要在 socket 层固定解析结果，代价是接管整个 HTTP 客户端，
   当前实现选择不引入这个复杂度。
+
+- **速率限制（两层）**。第一层按访客限流，负责公平；第二层是全局上限，
+  负责安全。之所以需要两层：按访客限流要读 `X-Forwarded-For`，而这个头
+  是客户端自己填的，Next.js 会原样透传 —— 换个伪造 IP 就能重置计数。
+  「验证 RSS 源」「忘记密码」「注册」这三个接口会真的抓外网 / 发邮件 /
+  建账号，因此都额外叠了不依赖任何客户端输入的全局桶，换 IP 也顶不破。
+  部署在反向代理后面时，把 `TRUST_PROXY=true` 打开，程序就会取反代追加的
+  最后一跳地址，客户端伪造的首段才真正失效。
 
 ### 切换到 PostgreSQL
 

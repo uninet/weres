@@ -16,10 +16,10 @@
 | F | 数据导入导出 | OPML 导出、OPML 导入 |
 | G | 阅读主题 | 浅色/米黄/电子墨水/深色四档 |
 | H | 文本转语音 | 支持检测、播放/停止 |
-| I | 鉴权与安全 | 未登录 401、越权隔离、XSS 净化、密钥校验 |
+| I | 鉴权与安全 | 未登录 401、越权隔离、XSS 净化、密钥校验、SSRF 拦截、匿名注入、限流不可绕过 |
 | J | 运维 | 健康检查、重启幂等、容器非 root |
 | K | Kindle 推送 | 状态接口、未配 SMTP 的降级提示、真实投递、越权 404、投递记录 |
-| T | 文章标签 | 创建/幂等、打标签、读回、计数、越权 404、移除 |
+| T | 文章标签 | 创建/幂等、打标签、读回、计数、越权 404、移除、删除标签并自我清理 |
 | M | 密码重置 | 未配 SMTP 的 503、不泄漏账号存在性、无效/过期 token、弱密码、完整链路、一次性 |
 | N | 用户偏好设置 | 紧凑视图、未读角标、自动标记已读、持久化、自动同步 |
 | O | 通知生成与偏好 | 通知开关落库、同步后自动生成通知、摘要接口鉴权 |
@@ -147,6 +147,7 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | I-10 | SSRF 非 http 协议 | 同上，url 换成 `file:///etc/passwd` | **400**「只支持 http / https 协议」 |
 | I-11 | SSRF 域名解析到内网 | 同上，url 换成 `http://127.0.0.1.nip.io:3000/` | **400**（证明不是只拦 IP 字面量） |
 | I-12 | 通知不可匿名写入 | 不带 Cookie `POST /api/notifications` | **405**（该接口不接受外部创建） |
+| I-13 | 限流不可被伪造 IP 绕过 | 连续 `POST /api/feeds/validate`，每次换一个 `X-Forwarded-For` | 在 120 次内出现 **429**（证明有全局上限兜底；只按 IP 限流时永远不会 429） |
 
 ### J. 运维
 
@@ -277,11 +278,15 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 ## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：58/58 通过（未配 SMTP）/ 61/61 通过（配了 SMTP）
+npm run verify:e2e   → 结果：61/61 通过（未配 SMTP）/ 64/64 通过（配了 SMTP）
 npm run verify:ui    → 结果：21/21 通过
+npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）
 ```
+
+脚本可以连续跑多次：I-13 会把全局限流桶打满，脚本随后等它自然过期再返回，
+不会污染下一轮；T-10/T-12 会把自己创建的验收标签删掉，不在用户标签列表里留垃圾。
 
 容器状态：`docker compose ps` → `werss` **Up (healthy)**，端口 `0.0.0.0:3000->3000`。
 

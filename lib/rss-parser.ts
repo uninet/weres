@@ -1,5 +1,6 @@
 import Parser from 'rss-parser';
 import * as cheerio from 'cheerio';
+import type { Feed } from '@prisma/client';
 import { prisma } from './prisma';
 import { sanitizeArticleHtml } from './sanitize';
 import { assertSafeOutboundUrl } from './url-safety';
@@ -46,6 +47,25 @@ const parser = new Parser({
     ],
   },
 });
+
+/**
+ * 单个源的同步结果。
+ *
+ * 之前这里是 `any[]`，导致 `/api/feeds/sync` 只能盲取值 ——
+ * 字段名写错（比如把 newArticles 写成 count）编译器不会说话，
+ * 接口就静默返回 undefined，前端显示「同步成功，新增 undefined 篇」。
+ */
+export interface FeedSyncResult {
+  success: boolean;
+  message: string;
+  count: number;
+}
+
+/** 批量同步结果，比 FeedSyncResult 多了两个用于展示的字段。 */
+export interface BatchSyncResult extends FeedSyncResult {
+  feedId: string;
+  feedTitle: string;
+}
 
 export interface RSSItem {
   title?: string;
@@ -880,7 +900,7 @@ async function fetchGenericContent(url: string): Promise<string | null> {
 /**
  * 同步 RSS 源文章到数据库
  */
-export async function syncFeed(feedId: string): Promise<{ success: boolean; message: string; count: number }> {
+export async function syncFeed(feedId: string): Promise<FeedSyncResult> {
   try {
     const feed = await prisma.feed.findUnique({
       where: { id: feedId },
@@ -1058,7 +1078,7 @@ export async function syncFeed(feedId: string): Promise<{ success: boolean; mess
 /**
  * 同步所有活跃的 RSS 源（并行处理优化版）
  */
-export async function syncAllFeeds(): Promise<{ success: boolean; results: any[] }> {
+export async function syncAllFeeds(): Promise<{ success: boolean; results: BatchSyncResult[] }> {
   try {
     const feeds = await prisma.feed.findMany({
       where: {
@@ -1075,7 +1095,7 @@ export async function syncAllFeeds(): Promise<{ success: boolean; results: any[]
 
     // 并行处理，限制并发数为 5，避免过多同时请求
     const concurrencyLimit = 5;
-    const results = [];
+    const results: BatchSyncResult[] = [];
     
     // 分批处理
     for (let i = 0; i < feeds.length; i += concurrencyLimit) {
@@ -1108,7 +1128,12 @@ export async function syncAllFeeds(): Promise<{ success: boolean; results: any[]
         if (result.status === 'fulfilled') {
           results.push(result.value);
         } else {
+          // allSettled 的 rejected 分支拿不到 feed，只能报一条无主的错误。
+          // 正常情况下走不到这里 —— 内层 try/catch 已经兜住了所有异常，
+          // 只有代码本身写错（比如 TypeError）才会落到这个分支。
           results.push({
+            feedId: '',
+            feedTitle: '',
             success: false,
             message: result.reason instanceof Error ? result.reason.message : 'Unknown error',
             count: 0,
@@ -1138,7 +1163,7 @@ export async function syncAllFeeds(): Promise<{ success: boolean; results: any[]
 /**
  * 添加新的 RSS 源
  */
-export async function addFeed(url: string, category: string = 'OTHER'): Promise<{ success: boolean; message: string; feed?: any }> {
+export async function addFeed(url: string, category: string = 'OTHER'): Promise<{ success: boolean; message: string; feed?: Feed }> {
   try {
     // 检查 URL 是否已存在
     const existingFeed = await prisma.feed.findUnique({

@@ -3,7 +3,12 @@ import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { createToken } from "@/lib/auth";
-import { getClientIdentifier, checkRateLimit, rateLimitConfigs } from "@/lib/rate-limit";
+import {
+  getClientIdentifier,
+  checkRateLimit,
+  checkGlobalRateLimit,
+  rateLimitConfigs,
+} from "@/lib/rate-limit";
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -16,12 +21,20 @@ export async function POST(req: Request) {
     const body = await req.json();
     
     // 速率限制 - 防止恶意注册
+    //
+    // 单邮箱一层挡住「对同一个邮箱反复试」，
+    // 全局一层挡住「换邮箱批量建号」—— 后者才是真正的滥用形态，
+    // 而邮箱是攻击者自己填的，只按邮箱计数的限流对它没有约束力。
+    const globalRate = checkGlobalRateLimit(
+      "register",
+      rateLimitConfigs.globalRegister
+    );
     const identifier = body.email 
       ? `register:${body.email.toLowerCase()}` 
       : getClientIdentifier(req);
     const rateLimit = checkRateLimit(identifier, rateLimitConfigs.strict);
 
-    if (!rateLimit.success) {
+    if (!rateLimit.success || !globalRate.success) {
       return NextResponse.json(
         {
           success: false,

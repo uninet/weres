@@ -19,6 +19,11 @@ const PASSWORD = process.env.TEST_PASSWORD || "123456";
 
 const results = [];
 
+/** 简易 sleep，用于等待限流时间窗过期 */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function record(id, name, ok, detail = "") {
   results.push({ id, name, ok, detail });
   const mark = ok ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m";
@@ -136,6 +141,58 @@ async function testSecurity() {
     injected.status === 405,
     `status=${injected.status}`
   );
+
+  // 限流不能靠伪造 X-Forwarded-For 绕过。
+  //
+  // 这个头是客户端自己填的，Next 会原样透传 —— 实测确认过。
+  // 所以关键接口在「按 IP 限流」之外必须再有一层不依赖客户端输入的
+  // 全局上限，否则换 IP 就能把服务端变成免费抓取代理。
+  //
+  // 断言方式：连续请求直到出现 429，中途每次都换一个伪造 IP。
+  // 如果只按 IP 限流，永远不会出现 429。
+  let sawGlobalLimit = false;
+  let attempts = 0;
+  for (let i = 0; i < 140; i++) {
+    attempts = i + 1;
+    const res = await api("/api/feeds/validate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // 每次换一个伪造 IP，模拟攻击者
+        "X-Forwarded-For": `10.9.${Math.floor(i / 250)}.${i % 250}`,
+      },
+      body: JSON.stringify({ url: "https://no-such-host-xyz-123.invalid/feed" }),
+    });
+    if (res.status === 429) {
+      sawGlobalLimit = true;
+      break;
+    }
+  }
+  record(
+    "I-13",
+    "伪造 X-Forwarded-For 无法绕过限流（有全局上限兜底）",
+    sawGlobalLimit,
+    `第 ${attempts} 次请求后触发 429`
+  );
+
+  // 上一条用例故意把全局桶（120 次/分钟）打满了。它是整个实例共享的，
+  // 所以如果不把它等回来，紧接着在同一分钟内重跑这套脚本时，
+  // 前面那些 feeds/validate 用例会拿到 429 而不是预期的 400 ——
+  // 是测试污染，不是产品缺陷。
+  //
+  // 这里等到窗口自然过期（最多 75 秒），让脚本可以连续跑多次。
+  if (sawGlobalLimit) {
+    const deadline = Date.now() + 75_000;
+    while (Date.now() < deadline) {
+      await sleep(3000);
+      const probe = await api("/api/feeds/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: "https://no-such-host-xyz-123.invalid/feed" }),
+      });
+      if (probe.status !== 429) break;
+    }
+  }
 
   cookie = savedCookie;
 }
@@ -925,6 +982,24 @@ async function testTags() {
     "重复移除返回 404",
     detachedAgain.status === 404,
     `status=${detachedAgain.status}`
+  );
+
+  // 删掉这个标签，别把「验收标签-xxxxx」堆在用户的标签列表里。
+  // 每跑一次脚本留一个，跑十次就是一屏垃圾 —— 测试要自己收拾现场。
+  const deleted = await api(`/api/tags?id=${tagId}`, { method: "DELETE" });
+  record(
+    "T-10",
+    "可以删除标签且自我清理",
+    deleted.status === 200 && deleted.body?.success === true,
+    `status=${deleted.status}`
+  );
+
+  const goneAgain = await api(`/api/tags?id=${tagId}`, { method: "DELETE" });
+  record(
+    "T-12",
+    "重复删除标签返回 404",
+    goneAgain.status === 404,
+    `status=${goneAgain.status}`
   );
 }
 
