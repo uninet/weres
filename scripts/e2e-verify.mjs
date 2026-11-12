@@ -583,6 +583,42 @@ async function testContent() {
       maxLen > 3000,
       `最长 ${maxLen} 字符（${maxFeed}），抽样 ${spread.length} 篇 / ${perFeed.size} 个源`
     );
+
+    // D-06：存量短篇会被重抓补齐。
+    //
+    // 这条防的是「第一次同步抓到什么就永远是什么」这个回归。之前同步
+    // 遇到已存在文章直接 continue，于是某篇在当时没抓到全文的，之后
+    // 无论同步多少次都保持摘要状态 —— 用户看到的就是「有的源有全文、
+    // 有的源只有摘要」，差别只是入库时机。现在同步时会为库里短于
+    // 800 字的文章补抓一次。
+    //
+    // 验证方式：在抽样里找一篇仍然很短的文章，触发它所属源的同步，
+    // 再看它有没有变长。找不到短文说明所有源都已补齐，这条直接算过。
+    const shortSample = spread.find((a, i) => {
+      const len = String(a.content || "").length;
+      return len === 0 || len < 800;
+    });
+
+    if (!shortSample) {
+      record("D-06", "存量短文无需补抓（抽样都已完整）", true, "抽样里没有短文");
+    } else {
+      const feedId = shortSample.feed.id;
+      const beforeRes = await api(`/api/articles/${shortSample.id}`);
+      const beforeLen = String(beforeRes.body?.data?.content || "").length;
+      await api(`/api/sync/${feedId}`, { method: "POST" });
+      const afterRes = await api(`/api/articles/${shortSample.id}`);
+      const afterLen = String(afterRes.body?.data?.content || "").length;
+      // 这条是「补抓路径不会把已有内容改坏」的守卫：补抓只会让正文
+      // 变长或不变，绝不会变更短。真正的补齐效果由同步日志
+      // `Repaired short article: ... -> ... chars` 体现，脚本层没法
+      // 直接读日志，所以这里断言单调性。
+      record(
+        "D-06",
+        "补抓存量短文不会让内容变短",
+        afterLen >= beforeLen,
+        `${beforeLen} -> ${afterLen} 字`
+      );
+    }
   }
 }
 

@@ -837,6 +837,35 @@ async function fetchSolidotContent(url: string): Promise<string | null> {
 /**
  * 通用内容抓取
  */
+/**
+ * 判断抓到的是不是「站点拒绝服务」的提示页，而不是正文。
+ *
+ * 反爬页面往往比正文还长（微信公众号返回的「环境异常」页面 18KB），
+ * 只按长度判断会把它当全文存进库，用户点开看到一堆「请在微信客户端打开
+ * 链接」。这类页面有几个非常固定的特征词，命中就不认。
+ */
+function looksLikeBlockPage(html: string): boolean {
+  // 只看开头一小段：真正的正文很少以「环境异常」这类话起头，
+  // 但一篇文章讨论反爬时可能在正文中间提到它 —— 那不该被当成拦截页。
+  //
+  // 注意不能按「整体长度」做前置判断：实测微信公众号的拦截页有
+  // 一万四千多字（内联脚本和样式都被算进文本），加长度上限反而让
+  // 检测失效。
+  const text = html.replace(/<[^>]+>/g, "").replace(/\s+/g, "").slice(0, 300);
+  return [
+    "环境异常",
+    "完成验证后即可继续访问",
+    "请在微信客户端打开链接",
+    "访问过于频繁",
+    "请输入验证码",
+    "Enable JavaScript and cookies to continue",
+    "Just a moment...",
+    "Attention Required",
+    "403 Forbidden",
+    "Access Denied",
+  ].some((marker) => text.includes(marker));
+}
+
 async function fetchGenericContent(url: string): Promise<string | null> {
   try {
     const response = await fetch(url, getFetchConfig());
@@ -862,6 +891,12 @@ async function fetchGenericContent(url: string): Promise<string | null> {
       '.article-body',
       '[class*="article-body"]',
       '.markdown-body',
+      // Tailwind Typography 的约定类名。现在大量个人博客和文档站用
+      // ProseMirror/MDX 生成静态页，正文就挂在 `.prose` 上，别的选择器
+      // 一个都命中不了 —— 实测新趣集整页 280KB HTML，正文字数 310，
+      // 而它正是 `<div class="prose prose-slate ...">`。
+      '.prose',
+      '[class*="prose"]',
       'article [class*="content"]',
       '[class*="content"] article',
       'article',
@@ -886,7 +921,7 @@ async function fetchGenericContent(url: string): Promise<string | null> {
       if (bestContent) break;
     }
 
-    if (bestContent) {
+    if (bestContent && !looksLikeBlockPage(bestContent)) {
       return cleanHtmlContent($, bestContent);
     }
 
@@ -929,6 +964,7 @@ export async function syncFeed(feedId: string): Promise<FeedSyncResult> {
     const addedArticles: { id: string; title: string }[] = [];
 
     // 处理文章
+    const syncStartedAt = Date.now();
     for (const item of rssData.items.slice(0, 15)) { // 只处理最新的 15 篇
       try {
         if (!item.title || !item.link) continue;
@@ -944,7 +980,49 @@ export async function syncFeed(feedId: string): Promise<FeedSyncResult> {
           },
         });
 
-        if (existingArticle) continue;
+        // 补抓要花的外网时间必须有上界：一个永久超时的源如果有 15 篇
+        // 短文章，每篇按 15 秒超时算就是 225 秒的同步。
+        // 403 很快的源（Product Hunt）实测 28 篇只花 4 秒，但超时型
+        // 源会拖垮整次同步，所以用时间预算兜住。
+        const repairBudgetMs = 20_000;
+        if (existingArticle) {
+          // 已经入库的文章也可能是「当时只拿到摘要」的。
+          //
+          // 之前这里直接 continue，等于「第一次同步抓到什么就永远是什么」。
+          // 实测少数派有 9 篇停在一百多字的摘要状态，而同一个源的其它文章
+          // 有 3 万多字 —— 差别只在于那几篇入库时落地页刚好没抓到。
+          // 用户点开就是残缺的正文，看起来像「有些源不支持全文」。
+          //
+          // 只在「库里内容很短」时补抓一次：这条路径要打一次外网，
+          // 无差别地对每篇老文章都重抓会让每次同步变慢十几倍。
+          const existingLen = (existingArticle.content || "").length;
+          if (existingLen < 800) {
+            // 预算用完就放弃本轮，但要留日志：否则「为什么还有短文」
+            // 会变成一个无从查起的问题。
+            if (Date.now() - syncStartedAt >= repairBudgetMs) {
+              console.log(
+                `Repair budget exhausted, skipped: ${existingArticle.title}`
+              );
+            } else {
+              const repaired = await fetchFullContent(item.link, feed.url);
+              if (repaired && repaired.length > existingLen) {
+                await prisma.article.update({
+                  where: { id: existingArticle.id },
+                  data: {
+                    content: stripLeadingDuplicateTitle(
+                      sanitizeArticleHtml(repaired),
+                      existingArticle.title || item.title || ""
+                    ),
+                  },
+                });
+                console.log(
+                  `Repaired short article: ${existingArticle.title} ${existingLen} -> ${repaired.length} chars`
+                );
+              }
+            }
+          }
+          continue;
+        }
 
         // 获取完整内容
         let content = item['content:encoded'] || item.content || item.description || '';

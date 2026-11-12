@@ -113,6 +113,20 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 > 遍历，遇到「不含块级子元素、且文本等于标题」的元素就删掉并立刻停止，
 > 中途累计到 200 字以上则判定「已进入正文」不再寻找。
 
+### W. 全文抓取（存量补齐）
+
+| 编号 | 场景 | 预期 |
+| --- | --- | --- |
+| D-01 | 抽样取各源文章调用详情接口 | 最长正文 > 3000 字符 |
+| D-06 | 补抓存量短文 | 补抓后正文不短于补抓前 |
+
+> **D-06 的由来**：`syncFeed` 里原来是 `if (existingArticle) continue;`——
+> 文章一旦入库就再也不会被重新抓取。第一次同步时落地页没抓到，那篇就
+> 永远停在摘要状态。实测少数派同一批文章里，老文章 34736 字 60 图、
+> 新文章 203 字 0 图，差别只在入库时机。现在已存在的文章若正文短于
+> 800 字，会补抓一次并更新。补抓有 20 秒时间预算，避免一个永久超时的源
+> 拖垮整次同步。
+
 ### V. 服务端健壮性
 
 这一组全是回归测试：下面每一条都对应一个真实修掉过的缺陷，不是假想的边界。
@@ -387,7 +401,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 ## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：69/69 通过（未配 SMTP）/ 72/72 通过（配了 SMTP）
+npm run verify:e2e   → 结果：70/70 通过（未配 SMTP）/ 73/73 通过（配了 SMTP）
 npm run verify:ui    → 结果：33/33 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
