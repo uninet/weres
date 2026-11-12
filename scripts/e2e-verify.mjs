@@ -220,18 +220,27 @@ function b64url(str) {
 // ---------------------------------------------------------------------------
 // 登录
 // ---------------------------------------------------------------------------
-async function login() {
-  section("登录");
+/**
+ * 恢复演示账号登录态。
+ *
+ * `quiet = true` 用于「中途换回演示账号」的场景（比如测完临时账号要
+ * 继续跑后续用例）：只换 cookie、不出现在报告里，否则每换一次都会
+ * 多打印一段「登录」分组和一条重复的 L-01。
+ */
+async function login({ quiet = false } = {}) {
+  if (!quiet) section("登录");
   const res = await api("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
-  record(
-    "L-01",
-    `登录 ${EMAIL}`,
-    res.status === 200 && Boolean(cookie),
-    `status=${res.status}`
-  );
+  if (!quiet) {
+    record(
+      "L-01",
+      `登录 ${EMAIL}`,
+      res.status === 200 && Boolean(cookie),
+      `status=${res.status}`
+    );
+  }
   return res.status === 200;
 }
 
@@ -1243,6 +1252,158 @@ async function testPasswordPolicy() {
   await login();
 }
 
+/**
+ * 列表摘要不含 HTML 源码。
+ *
+ * 文章列表接口早就做了 `sanitizePlainText`，但历史/收藏两个接口
+ * 之前把 `article.description` 原样返回，于是页面上出现了
+ *   「…想让客厅的 HomePod、书房的 ...<a href="..." target="_blank">查看全文</a>」
+ * 这种把标签当文字显示的情况。写入口（订阅导入）也补了净化。
+ * 这里守住出口：三个列表接口的 description 都不能含标签。
+ */
+async function testPlainTextLists() {
+  section("Y. 列表摘要不含 HTML");
+
+  const targets = [
+    ["/api/history?limit=50", "histories"],
+    ["/api/favorites?limit=50", "favorites"],
+    ["/api/articles?limit=50", "articles"],
+  ];
+
+  for (const [path, key] of targets) {
+    const r = await api(path);
+    let items = r.body?.histories || r.body?.favorites || [];
+    if (!items.length) {
+      items = r.body?.data?.articles || r.body?.articles || [];
+    }
+    const withTags = items.filter((it) => {
+      const desc = it.article?.description ?? it.description ?? "";
+      return /<[a-z][^>]*>/i.test(String(desc));
+    });
+    record(
+      `Y-${targets.findIndex((t) => t[0] === path) + 1}`,
+      `${path.split("?")[0]} 摘要无标签源码`,
+      withTags.length === 0,
+      `${items.length} 条中 ${withTags.length} 条含标签`
+    );
+  }
+}
+
+/**
+ * 账号自助：改密码 / 注销账号（m08274 引入的两个接口）
+ *
+ * 这两个功能原来在个人中心只有一句「功能开发中」的 toast。
+ * 用例全程使用临时注册的账号，不碰演示账号 —— 注销是不可逆的，
+ * 拿 test@example.com 去测会把 seed 数据删掉。
+ */
+async function testAccountSelfService() {
+  section("X. 账号自助（改密码/注销）");
+
+  const email = `selfservice${Date.now()}@example.com`;
+  const firstPw = "Str0ngPass2026";
+  const secondPw = "NewPass2027";
+
+  let r = await api("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password: firstPw, nickname: "自助测试" }),
+  });
+  record("X-01", "可以注册一个临时账号", r.status === 200, `HTTP ${r.status}`);
+
+  r = await api("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: firstPw }),
+  });
+  record("X-02", "临时账号可登录", r.status === 200, `HTTP ${r.status}`);
+
+  // 旧密码错误必须被拒：否则前端输错一个字也能改密码
+  r = await api("/api/profile/password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: "wrongwrong", newPassword: secondPw }),
+  });
+  record(
+    "X-03",
+    "旧密码不正确时拒绝改密码",
+    r.status === 400,
+    `HTTP ${r.status} ${r.body?.message || ""}`
+  );
+
+  // 新密码必须过策略（和注册同一套规则）
+  r = await api("/api/profile/password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: firstPw, newPassword: "12345678" }),
+  });
+  record(
+    "X-04",
+    "新密码不符合策略时拒绝",
+    r.status === 400,
+    `HTTP ${r.status} ${r.body?.message || ""}`
+  );
+
+  r = await api("/api/profile/password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: firstPw, newPassword: secondPw }),
+  });
+  record("X-05", "合法请求可以改密码", r.status === 200, `HTTP ${r.status}`);
+
+  r = await api("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: secondPw }),
+  });
+  record("X-06", "新密码可以登录", r.status === 200, `HTTP ${r.status}`);
+
+  r = await api("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: firstPw }),
+  });
+  record("X-07", "旧密码已失效", r.status !== 200, `HTTP ${r.status}`);
+
+  // 注销要过三道闸
+  await login({ quiet: true });
+  r = await api("/api/profile/delete", {
+    method: "POST",
+    body: JSON.stringify({ password: secondPw }),
+  });
+  record(
+    "X-08",
+    "注销缺少 confirm 时被拒",
+    r.status === 400,
+    `HTTP ${r.status} ${r.body?.message || ""}`
+  );
+
+  r = await api("/api/profile/delete", {
+    method: "POST",
+    body: JSON.stringify({ password: "wrongpass1", confirm: "DELETE" }),
+  });
+  record(
+    "X-09",
+    "注销密码错误时被拒",
+    r.status === 400 || r.status === 401,
+    `HTTP ${r.status} ${r.body?.message || ""}`
+  );
+
+  // 重新用临时账号登录后正常注销
+  r = await api("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: secondPw }),
+  });
+  record("X-10", "注销前重新登录", r.status === 200, `HTTP ${r.status}`);
+
+  r = await api("/api/profile/delete", {
+    method: "POST",
+    body: JSON.stringify({ password: secondPw, confirm: "DELETE" }),
+  });
+  record("X-11", "校验通过后可以注销", r.status === 200, `HTTP ${r.status}`);
+
+  r = await api("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: secondPw }),
+  });
+  record("X-12", "注销后账号无法登录", r.status !== 200, `HTTP ${r.status}`);
+
+  // 恢复演示账号的登录态给后续用例用
+  await login({ quiet: true });
+}
+
 async function main() {
   console.log(`\n\x1b[1mWeRSS 端到端验收\x1b[0m  ${BASE}\n`);
 
@@ -1267,6 +1428,8 @@ async function main() {
     await testPasswordReset();
     await testPasswordPolicy();
     await testRobustness();
+    await testAccountSelfService();
+    await testPlainTextLists();
   } catch (error) {
     console.error("\n\x1b[31m执行中断：\x1b[0m", error);
     process.exit(1);

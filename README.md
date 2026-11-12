@@ -31,12 +31,22 @@
 **订阅**
 - 添加任意 RSS / Atom 源，管理分组
 - 内置 RSS 市场：收录 890+ 个中文源（技术 / 新闻 / 博客 / 商业 / 生活 / 科学 / 视频），支持搜索与分类筛选，一键订阅
+- 源图标缺失时用**本地生成**的首字 SVG 兜底，不请求 dicebear 等第三方服务——断网、内网部署都不会裂图
 - 手动同步单个源或全部源
 
 **账号**
 - 邮箱 + 密码注册登录（bcrypt 存储密码哈希，JWT 放在 HttpOnly Cookie）
-- 个人资料、通知、设置
-- 访客/演示模式（可选，默认在开发环境开启、生产关闭）
+- 个人中心：资料就地编辑、订阅/收藏/已读三个数字可点直达、通知偏好即时同步到服务端
+- 自助改密码（校验当前密码，改完清掉未用的重置链接）和自助注销（需输入密码 + 二次确认，级联清空全部数据）
+- 通知、设置
+- 访客/演示模式（可选，默认在开发环境开启、生产关闭；演示账号不允许注销）
+
+**导航**
+- 五个主入口（阅读 / 市场 / 订阅 / 收藏 / 我的）在移动端底部常驻，不再有「进得去出不来」的页面
+- 次级页面（历史 / 通知 / 设置 / 帮助）统一外壳：等高顶栏 + 返回入口，风格与阅读器一致
+- 高频操作两步内抵达：个人中心里「收藏 / 历史 / 通知 / 设置」各一行直接进
+- 收藏与历史里点标题进**站内阅读器**接着读，想跳原站另有「打开原文」图标
+- 文章通知点了直接打开对应文章(`/reader?articleId=…`)
 
 ## 技术栈
 
@@ -241,15 +251,23 @@ SMTP_FROM="you@qq.com"
 │   │   ├── history/           # 阅读历史
 │   │   ├── notifications/     # 通知
 │   │   ├── market/            # RSS 市场
+│   │   ├── profile/           # 个人资料、改密码、注销
+│   │   ├── opml/              # OPML 导入导出
+│   │   ├── tags/              # 文章标签
+│   │   ├── kindle/            # Kindle 推送
 │   │   └── health/            # 健康检查
 │   ├── not-found.tsx          # 全局 404
 │   └── error.tsx              # 全局错误边界
 ├── components/                # UI 组件（含 reader/ 阅读器、ui/ shadcn）
+│   ├── page-shell.tsx         # 次级页面统一外壳（等高顶栏 + 返回 + 限宽内容区）
+│   └── bottom-nav.tsx         # 移动端常驻底部导航（读 lib/navigation.ts）
 ├── hooks/                     # 数据获取与 UI 状态 hooks
 ├── lib/
 │   ├── auth.ts                # JWT 签发/校验、鉴权入口
+│   ├── navigation.ts          # 全站导航唯一信息源（主入口 / 次级入口）
 │   ├── sanitize.ts            # RSS 正文 HTML 白名单净化
 │   ├── rss-parser.ts          # RSS 抓取与解析
+│   ├── feed-icon.ts           # 本地生成首字 SVG 图标（不依赖第三方服务）
 │   ├── prisma.ts              # Prisma 客户端单例
 │   └── rate-limit.ts          # 登录/注册限流
 ├── prisma/
@@ -299,6 +317,8 @@ SMTP_FROM="you@qq.com"
 | GET | `/api/kindle/push` | 读取推送状态与最近投递记录 |
 | POST | `/api/kindle/push` | 把一篇文章推到 Kindle |
 | GET/PATCH | `/api/profile` | 读写个人资料（含 Kindle 邮箱） |
+| POST | `/api/profile/password` | 自助改密码（校验当前密码，清掉未用的重置链接） |
+| POST | `/api/profile/delete` | 自助注销（需 `confirm: "DELETE"` + 密码，级联删全部数据） |
 | GET/POST/DELETE | `/api/tags` | 标签列表（含文章数）/ 新建标签 / 删除标签 |
 | GET/POST/DELETE | `/api/articles/:id/tags` | 读写某篇文章的标签 |
 | GET | `/api/health` | 健康检查（含数据库探活） |

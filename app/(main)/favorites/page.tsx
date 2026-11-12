@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -152,8 +153,17 @@ export default function FavoritesPage() {
   };
 
   // 打开文章
-  const handleOpenArticle = (link: string) => {
-    window.open(link, "_blank");
+  //
+  // 原来是 window.open(article.link, "_blank")：点自己收藏的一篇，
+  // 浏览器立刻跳去原始站点。用户收藏是为了「以后还在这里读」，
+  // 不是为了存一个书签。现在跳站内阅读器深链，按 id 取全文。
+  const handleOpenArticle = (articleId: string) => {
+    router.push(`/reader?articleId=${articleId}`);
+  };
+
+  /** 打开原文：这是「跳出去」，和上面「在站内读」是两件事，图标也不同 */
+  const handleOpenOriginal = (link: string) => {
+    window.open(link, "_blank", "noopener,noreferrer");
   };
 
   // 格式化日期
@@ -181,68 +191,43 @@ export default function FavoritesPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-50 rounded-lg">
-                <Heart className="w-6 h-6 text-red-500" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">我的收藏</h1>
-                <p className="text-sm text-gray-500">
-                  共 {pagination.total} 篇收藏文章
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {selectedIds.length > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleBatchDelete}
-                >
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  删除 ({selectedIds.length})
-                </Button>
-              )}
-            </div>
-          </div>
+    <PageShell
+      title="我的收藏"
+      subtitle={`共 ${pagination.total} 篇`}
+      icon={Heart}
+      iconClassName="bg-red-50 text-red-500 dark:bg-red-500/15 dark:text-red-400"
+      actions={
+        selectedIds.length > 0 ? (
+          <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
+            <Trash2 className="w-4 h-4 mr-1" />
+            删除 ({selectedIds.length})
+          </Button>
+        ) : null
+      }
+    >
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            placeholder="搜索收藏文章..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
         </div>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-full sm:w-40">
+            <SelectValue placeholder="排序方式" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">最新收藏</SelectItem>
+            <SelectItem value="oldest">最早收藏</SelectItem>
+            <SelectItem value="title">标题排序</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white border-b">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="搜索收藏文章..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="排序方式" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">最新收藏</SelectItem>
-                <SelectItem value="oldest">最早收藏</SelectItem>
-                <SelectItem value="title">标题排序</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {isLoading ? (
+      {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           </div>
@@ -294,7 +279,7 @@ export default function FavoritesPage() {
                       <div className="flex items-start justify-between gap-4">
                         <h3
                           className="font-medium text-gray-900 hover:text-blue-600 cursor-pointer line-clamp-2"
-                          onClick={() => handleOpenArticle(favorite.article.link)}
+                          onClick={() => handleOpenArticle(favorite.article.id)}
                         >
                           {favorite.article.title}
                         </h3>
@@ -303,7 +288,8 @@ export default function FavoritesPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-gray-400 hover:text-blue-500"
-                            onClick={() => handleOpenArticle(favorite.article.link)}
+                            title="打开原文"
+                            onClick={() => handleOpenOriginal(favorite.article.link)}
                           >
                             <ExternalLink className="w-4 h-4" />
                           </Button>
@@ -376,7 +362,6 @@ export default function FavoritesPage() {
             )}
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

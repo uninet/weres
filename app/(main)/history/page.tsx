@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -164,8 +165,16 @@ export default function HistoryPage() {
   };
 
   // 打开文章
-  const handleOpenArticle = (link: string) => {
-    window.open(link, "_blank");
+  /**
+   * 打开文章。
+   *
+   * 原来是 window.open(article.link, "_blank") —— 点自己历史里的一篇，
+   * 人就被送到原始站点去了。历史记录的意义是「回到这个阅读器里
+   * 继续读」，不是「帮你记了个外链」。
+   * 现在跳站内阅读器的深链，由它按 id 取全文。
+   */
+  const handleOpenArticle = (articleId: string) => {
+    router.push(`/reader?articleId=${articleId}`);
   };
 
   // 格式化日期
@@ -195,68 +204,50 @@ export default function HistoryPage() {
   }, {} as Record<string, ReadHistory[]>);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-50 rounded-lg">
-                <History className="w-6 h-6 text-blue-500" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">阅读历史</h1>
-                <p className="text-sm text-gray-500">
-                  共 {pagination.total} 条阅读记录
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {selectedIds.length > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleBatchDelete}
-                >
+    <PageShell
+      title="阅读历史"
+      subtitle={`共 ${pagination.total} 条记录`}
+      icon={History}
+      iconClassName="bg-blue-50 text-blue-500 dark:bg-blue-500/15 dark:text-blue-400"
+      actions={
+        <>
+          {selectedIds.length > 0 && (
+            <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
+              <Trash2 className="w-4 h-4 mr-1" />
+              删除 ({selectedIds.length})
+            </Button>
+          )}
+          {histories.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm">
                   <Trash2 className="w-4 h-4 mr-1" />
-                  删除 ({selectedIds.length})
+                  清空
                 </Button>
-              )}
-              {histories.length > 0 && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      清空
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>确认清空阅读历史？</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        此操作将删除所有阅读历史记录，无法恢复。
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>取消</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleClearAll}
-                        className="bg-red-500 hover:bg-red-600"
-                      >
-                        确认清空
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {isLoading ? (
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>确认清空阅读历史？</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    此操作将删除所有阅读历史记录，无法恢复。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleClearAll}
+                    className="bg-red-500 hover:bg-red-600"
+                  >
+                    确认清空
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </>
+      }
+    >
+      {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           </div>
@@ -312,9 +303,7 @@ export default function HistoryPage() {
                             <div className="flex items-start justify-between gap-4">
                               <h3
                                 className="font-medium text-gray-900 hover:text-blue-600 cursor-pointer line-clamp-2"
-                                onClick={() =>
-                                  handleOpenArticle(history.article.link)
-                                }
+                                onClick={() => handleOpenArticle(history.article.id)}
                               >
                                 {history.article.title}
                               </h3>
@@ -323,8 +312,13 @@ export default function HistoryPage() {
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8 text-gray-400 hover:text-blue-500"
+                                  title="打开原文"
                                   onClick={() =>
-                                    handleOpenArticle(history.article.link)
+                                    window.open(
+                                      history.article.link,
+                                      "_blank",
+                                      "noopener,noreferrer"
+                                    )
                                   }
                                 >
                                   <ExternalLink className="w-4 h-4" />
@@ -401,7 +395,6 @@ export default function HistoryPage() {
             )}
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

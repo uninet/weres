@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { generateInitialIcon } from "@/lib/feed-icon";
 
 interface LazyImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   /**
@@ -32,7 +33,8 @@ export function LazyImage({
   src,
   alt,
   className,
-  fallback = "https://api.dicebear.com/7.x/initials/svg?seed=RSS",
+  fallback,
+
   lazy = true,
   placeholderClassName,
   ...props
@@ -77,7 +79,9 @@ export function LazyImage({
     setIsLoaded(true);
   };
 
-  const imageSrc = hasError ? fallback : isInView ? src : undefined;
+  // 没有显式 fallback 时用本地首字图标，不再往外请求 dicebear
+  const fallbackSrc = fallback ?? generateInitialIcon(alt || "RSS");
+  const imageSrc = hasError ? fallbackSrc : isInView ? src : undefined;
 
   return (
     <div
@@ -140,9 +144,8 @@ export function FeedIcon({
     lg: "w-14 h-14",
   };
 
-  const fallbackSrc = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
-    title
-  )}`;
+  // 本地生成首字图标（见 lib/feed-icon.ts）：不依赖外部服务
+  const fallbackSrc = generateInitialIcon(title);
 
   return (
     <LazyImage

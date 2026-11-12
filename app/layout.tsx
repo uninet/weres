@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { BottomNav } from "@/components/bottom-nav";
 import { Toaster } from "@/components/toaster";
 
 // 字体策略说明
@@ -21,6 +20,9 @@ export const metadata: Metadata = {
   title: "WeRSS - Web版RSS阅读平台",
   description: "一款简洁高效的PC端RSS阅读工具，支持自定义订阅和内置RSS市场",
   manifest: "/manifest.json",
+  // 图标走 app/icon.svg 的文件约定（Next 自动注入 <link rel="icon">）。
+  // 之前没有它，每个页面都去请求 /favicon.ico 拿到 404 —— 浏览器标签页
+  // 上没有图标，控制台里还多一条噪音错误。
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -63,7 +65,6 @@ export default function RootLayout({
           <div id="main-content" className="contents">
             {children}
           </div>
-          <BottomNav />
           {/* 全局提示容器。项目里 9 个页面共 61 处调用 toast()，
               没有它的话所有成功/失败提示都会被静默丢弃。 */}
           <Toaster />

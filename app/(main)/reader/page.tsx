@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GuestBanner, GuestRestrictionModal } from "@/components/guest-banner";
@@ -40,6 +41,21 @@ export default function ReaderPage() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   // 快捷键帮助面板
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+
+  // 深链：/reader?articleId=xxx 直接打开某篇文章。
+  //
+  // 收藏页和历史页原本点标题是 window.open(文章原始链接, "_blank") ——
+  // 用户从自己的收藏里点一篇，人就被送出产品了。收藏的价值是
+  // 「下次还在这个阅读器里读」，不是「帮你存了个外链」。
+  // 现在那两个页面改成跳 /reader?articleId=，由这里接手。
+  const router = useRouter();
+  // 深链 id 用 window.location 读，不用 useSearchParams：
+  // useSearchParams 会让这个页面在 build 期被要求包一层 Suspense
+  // 边界，否则 next build 直接报 «useSearchParams() should be wrapped
+  // in a suspense boundary»。这个页面本来就是纯客户端的，
+  // 挂载后读一次地址栏完全够用。
+  const [deepLinkId, setDeepLinkId] = useState<string | null>(null);
+  const deepLinkHandled = useRef<string | null>(null);
 
   // 游客模式状态
   const [isGuest, setIsGuest] = useState(false);
@@ -170,9 +186,62 @@ export default function ReaderPage() {
     [markArticleAsRead, preferences.autoMarkRead]
   );
 
+  // 挂载后读一次 articleId。
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("articleId");
+    if (id) setDeepLinkId(id);
+  }, []);
+
+  // 深链：URL 里带了 articleId 就直接打开那篇。
+  //
+  // 优先于「自动选中第一篇」执行，并且不走列表——收藏页/历史页
+  // 链过来时目标文章可能根本不在当前列表（没选源、或者文章比
+  // 第一页更旧），只能按 id 单独取。
+  useEffect(() => {
+    if (!deepLinkId) return;
+    if (deepLinkHandled.current === deepLinkId) return;
+    deepLinkHandled.current = deepLinkId;
+
+    let cancelled = false;
+    (async () => {
+      setArticleLoading(true);
+      try {
+        const res = await fetch(`/api/articles/${deepLinkId}`);
+        const payload = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !payload?.success || !payload.data) {
+          toast.error(payload?.message || "文章不存在或无权访问");
+          return;
+        }
+        // 直接落库结果：这条路径拿到的是带全文的对象，
+        // 再走 handleSelectArticle 会多打一次 /api/articles/:id。
+        setListOnly(false);
+        setSelectedArticle(payload.data);
+        if (!payload.data.isRead && preferences.autoMarkRead) {
+          await markArticleAsRead(payload.data.id);
+        }
+      } catch (error) {
+        console.error("深链打开文章失败:", error);
+        if (!cancelled) toast.error("打开文章失败");
+      } finally {
+        if (!cancelled) setArticleLoading(false);
+      }
+    })();
+
+    // 把地址栏换回 /reader：不留 ?articleId=，
+    // 否则用户在列表里换下一篇时地址栏还是旧 id，刷新会跳回去。
+    router.replace("/reader", { scroll: false });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deepLinkId, router, preferences.autoMarkRead, markArticleAsRead]);
+
   // 自动选中第一篇文章
   useEffect(() => {
     if (listOnly) return;
+    // 深链正在处理时不抢：两件事同时发生会先闪一下第一篇再跳走
+    if (deepLinkId) return;
     // 小屏不自动选中：三栏变成三级页面后，自动进正文会让用户
     // 点完源瞬间看不见列表，以为「点了没反应」。
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) return;
@@ -182,7 +251,7 @@ export default function ReaderPage() {
       // 直接塞进去右侧会是空白正文，必须由它去 /api/articles/:id 取全文。
       handleSelectArticle(articles[0]);
     }
-  }, [articles, selectedArticle, listOnly, handleSelectArticle]);
+  }, [articles, selectedArticle, listOnly, handleSelectArticle, deepLinkId]);
 
   // 获取当前文章索引
   const getCurrentArticleIndex = useCallback(() => {

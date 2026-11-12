@@ -4,13 +4,13 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { KindleSettings } from "@/components/kindle-settings";
 import { usePreferences } from "@/hooks/use-preferences";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { 
   Settings, 
@@ -220,19 +220,13 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] dark:bg-gray-900">
-      {/* Header */}
-      <header className="h-14 border-b bg-white dark:bg-gray-800 flex items-center px-4 sticky top-0 z-10">
-        <Button variant="ghost" size="icon" className="mr-3" asChild>
-          <Link href="/reader">
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <h1 className="font-semibold text-lg">设置</h1>
-      </header>
-
-      <ScrollArea className="h-[calc(100vh-56px)]">
-        <div className="max-w-2xl mx-auto p-6 space-y-6">
+    <PageShell
+      title="设置"
+      subtitle="外观、阅读与数据"
+      icon={Settings}
+      iconClassName="bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-300"
+    >
+      <div className="mx-auto max-w-2xl space-y-6">
           {/* Appearance */}
           <Card>
             <CardHeader>
@@ -518,8 +512,7 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
-      </ScrollArea>
-    </div>
+      </div>
+    </PageShell>
   );
 }

@@ -319,9 +319,74 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | N-04 | 设置持久化 | 拨动开关后刷新页面 | 设置值保持（存 localStorage） |
 | N-05 | 自动同步 | 开启 `autoSync` 并设间隔 | 进入阅读器后按间隔触发同步 |
 
+### X. 账号自助（改密码 / 注销）
+
+个人中心原本有四个按钮全是占位 toast（「密码修改功能开发中」等），
+后端根本没有对应接口。这两条接口是本轮补的，所以要有独立用例守住。
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| X-01 | 注册临时账号 | `POST /api/auth/register` 用 `selfservice<时间戳>@example.com` | 200 |
+| X-02 | 临时账号登录 | 用该账号登录 | 200 |
+| X-03 | 旧密码错误被拒 | `POST /api/profile/password` 带错 currentPassword | 400「当前密码不正确」 |
+| X-04 | 新密码不符合策略 | 新密码 `abcdefgh`（无数字） | 400「密码需包含字母/数字」 |
+| X-05 | 合法请求可改密码 | 旧密码正确 + `Str0ngPass2026` | 200 |
+| X-06 | 新密码可登录 | 用新密码登录 | 200 |
+| X-07 | 旧密码失效 | 用旧密码登录 | 401 |
+| X-08 | 注销缺少 confirm | `POST /api/profile/delete` 不传 confirm | 400「请确认注销操作」 |
+| X-09 | 注销密码错误 | 传 `confirm: "DELETE"` 但密码错 | 400「密码不正确」 |
+| X-10 | 注销前重新登录 | 恢复会话 | 200 |
+| X-11 | 校验通过可以注销 | 正确 confirm + 密码 | 200 |
+| X-12 | 注销后无法登录 | 用原密码登录 | 401 |
+
+> **必须用临时账号**：注销不可逆，`prisma.user.delete()` 靠 schema 的
+> `onDelete: Cascade` 清掉订阅/收藏/历史。用演示账号测会把 seed 数据删光，
+> 后续所有用例连带失败。脚本里 `selfservice${Date.now()}@example.com`
+> 就是这个原因。
+
+> **演示账号不可注销**：`GUEST_USER_ID` 那条闸在服务端拦着，返回 403
+> 「演示账号不支持注销」——别人 clone 下来跑测试不该把自己的演示环境删掉。
+
+### Y. 列表摘要不含 HTML 源码
+
+历史页曾经显示成这样：
+
+```
+…想让客厅的 HomePod、书房的 ...<a href="https://sspai.com/post/118921" target="_blank">查看全文</a>
+```
+
+根因是三处都没净化：订阅导入时 `description: item.description || ''` 原样落库，
+`/api/history` 和 `/api/favorites` 又把 `article.description` 原样返回。
+（`/api/articles` 早就做了 `sanitizePlainText`，所以只有这两个页面露馅。）
+
+| ID | 用例 | 步骤 | 期望 |
+|----|------|------|------|
+| Y-1 | 历史摘要 | `GET /api/history?limit=50` | 每条 `article.description` 不含 `/<[a-z][^>]*>/i` |
+| Y-2 | 收藏摘要 | `GET /api/favorites?limit=50` | 同上 |
+| Y-3 | 文章列表摘要 | `GET /api/articles?limit=50` | 同上 |
+
+写入口（`app/api/feeds/subscriptions/route.ts`）也补了 `sanitizePlainText`，
+但**出口必须再净化一次**：数据库里已经存在改造前入库的脏数据，
+只修写入口不会让存量数据变干净。
+
+### Z. 页面导航与外壳一致性
+
+改造前 7 个次级页面各画各的顶栏（三种高度、两套导航语言），
+而阅读器已经取消顶栏改悬浮工具栏，风格割裂。现在统一走 `PageShell`。
+
+| ID | 用例 | 期望 |
+|----|------|------|
+| Z-01 | 所有次级页面顶栏高度一致 | 均为 56px（`h-14`） |
+| Z-02 | 次级页面都有返回入口 | 除「我的」外均有返回箭头（「我的」是主入口，不该有返回） |
+| Z-03 | 移动端底部导航常驻 | 任意页面都显示 5 项主导航，不再只在 4 个 href 上显示 |
+| Z-04 | 收藏/历史点标题进站内阅读器 | 地址变为 `/reader?articleId=<id>`，不跳出站点 |
+| Z-05 | 收藏/历史「打开原文」跳外链 | 新标签页打开原始链接，带 `noopener,noreferrer` |
+| Z-06 | 通知点击进目标文章 | `/reader?articleId=<id>`（此前误写成 `?article=`，入口从未生效） |
+| Z-07 | 无第三方图标请求 | 页面加载不请求 `api.dicebear.com`，图标为本地生成的 SVG |
+
 ## 4. 自动化执行
 
-一条命令跑完 A–J 的全部可自动化用例：
+一条命令跑完 A–Y 的全部可自动化用例：
 
 ```bash
 node scripts/e2e-verify.mjs
@@ -330,13 +395,13 @@ node scripts/e2e-verify.mjs
 脚本会：
 1. 检查 `/api/health`；
 2. 登录拿 cookie；
-3. 逐条断言 A–J 的 API 层用例；
+3. 逐条断言 A–Y 的 API 层用例；
 4. 用 Playwright 打开真实浏览器验证 UI 层用例（订阅 toast、左栏可见、快捷键、主题）；
 5. 输出 PASS/FAIL 汇总表，任一条失败则退出码非 0。
 
 ## 5. 通过标准
 
-- A–J 全部用例 PASS；
+- A–Y 全部用例 PASS；
 - `npx tsc --noEmit`、`npx next lint`、`npx vitest run` 均无错误；
 - 容器 `healthy`，重启后数据一致。
 
@@ -356,8 +421,8 @@ node scripts/e2e-verify.mjs
 手工用例适合验收「手感」，但不适合每次改代码都重跑一遍。仓库里带了两套脚本，覆盖上面绝大多数用例：
 
 ```bash
-npm run verify:e2e   # API 层，34 个用例
-npm run verify:ui    # 浏览器层，15 个用例（Playwright + 系统 Chrome）
+npm run verify:e2e   # API 层，85 个用例
+npm run verify:ui    # 浏览器层，33 个用例（Playwright + 系统 Chrome）
 npm run verify       # 两套串联，任一失败则退出码非 0
 ```
 
@@ -401,7 +466,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 ## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：70/70 通过（未配 SMTP）/ 73/73 通过（配了 SMTP）
+npm run verify:e2e   → 结果：85/85 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
 npm run verify:ui    → 结果：33/33 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS

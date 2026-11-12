@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
+import { generateInitialIcon } from "@/lib/feed-icon";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
@@ -20,6 +22,7 @@ import {
   Check,
   FolderPlus,
   Loader2,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -243,49 +246,24 @@ export default function SubscriptionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="flex items-center gap-2">
-              <Rss className="h-6 w-6 text-primary" />
-              <span className="font-bold text-lg">WeRSS</span>
-            </Link>
-          </div>
-          <nav className="flex items-center gap-2">
-            <Link href="/reader">
-              <Button variant="ghost" size="sm">
-                阅读器
-              </Button>
-            </Link>
-            <Link href="/market">
-              <Button variant="ghost" size="sm">
-                RSS市场
-              </Button>
-            </Link>
-            <Link href="/profile">
-              <Button variant="ghost" size="sm">
-                个人中心
-              </Button>
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      <div className="container py-8">
-        {/* Page Title */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">订阅管理</h1>
-          <p className="text-muted-foreground">
-            管理您的 {totalFeeds} 个订阅，共 {totalUnread} 篇未读
-          </p>
-        </div>
-
+    <PageShell
+      title="订阅管理"
+      subtitle={`${totalFeeds} 个订阅 · ${totalUnread} 篇未读`}
+      icon={Layers}
+      iconClassName="bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15 dark:text-emerald-400"
+      actions={
+        <Link href="/market">
+          <Button size="sm">
+            <Plus className="h-4 w-4 mr-1" />
+            添加
+          </Button>
+        </Link>
+      }
+    >
         <div className="flex gap-8">
           {/* Sidebar */}
           <div className="w-64 flex-shrink-0">
-            <div className="sticky top-24 space-y-6">
+            <div className="sticky top-4 space-y-6">
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -438,7 +416,7 @@ export default function SubscriptionsPage() {
                     >
                       <GripVertical className="h-5 w-5 text-muted-foreground cursor-move" />
                       <img
-                        src={subscription.feed.icon || `https://api.dicebear.com/7.x/initials/svg?seed=${subscription.feed.title}`}
+                        src={subscription.feed.icon || generateInitialIcon(subscription.feed.title)}
                         alt={subscription.feed.title}
                         className="w-10 h-10 rounded-lg"
                       />
@@ -499,7 +477,7 @@ export default function SubscriptionsPage() {
                     >
                       <GripVertical className="h-5 w-5 text-muted-foreground cursor-move" />
                       <img
-                        src={subscription.feed.icon || `https://api.dicebear.com/7.x/initials/svg?seed=${subscription.feed.title}`}
+                        src={subscription.feed.icon || generateInitialIcon(subscription.feed.title)}
                         alt={subscription.feed.title}
                         className="w-10 h-10 rounded-lg"
                       />
@@ -562,7 +540,6 @@ export default function SubscriptionsPage() {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

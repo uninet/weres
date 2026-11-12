@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import {
@@ -163,33 +164,28 @@ export default function HelpPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">
-              帮助中心
-            </h1>
-            <p className="text-gray-500 mb-6 max-w-2xl mx-auto">
-              查找使用指南、常见问题解答，或联系我们获取帮助
-            </p>
-            <div className="max-w-xl mx-auto relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <Input
-                placeholder="搜索问题..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 h-12"
-              />
-            </div>
-          </div>
+    <PageShell
+      title="帮助中心"
+      subtitle="使用指南与常见问题"
+      icon={HelpCircle}
+      iconClassName="bg-sky-50 text-sky-500 dark:bg-sky-500/15 dark:text-sky-400"
+    >
+      {/* 搜索：帮助页唯一的交互入口，放在最上面 */}
+      <div className="mb-5">
+        <div className="relative max-w-xl">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            placeholder="搜索问题..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
         </div>
       </div>
 
       {/* Quick Links */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {quickLinks.map((link) => (
             <Card
               key={link.title}
@@ -216,8 +212,7 @@ export default function HelpPage() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Sidebar */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-lg border p-4 sticky top-4">
@@ -355,7 +350,6 @@ export default function HelpPage() {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

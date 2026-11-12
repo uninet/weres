@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
+import { generateInitialIcon } from "@/lib/feed-icon";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -283,45 +285,12 @@ export default function MarketPage() {
   const regularFeeds = filteredFeeds.filter((f) => !f.isFeatured);
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="flex items-center gap-2">
-              <Rss className="h-6 w-6 text-primary" />
-              <span className="font-bold text-lg">WeRSS</span>
-            </Link>
-          </div>
-          <nav className="flex items-center gap-2">
-            <Link href="/reader">
-              <Button variant="ghost" size="sm">
-                阅读器
-              </Button>
-            </Link>
-            <Link href="/subscriptions">
-              <Button variant="ghost" size="sm">
-                订阅管理
-              </Button>
-            </Link>
-            <Link href="/profile">
-              <Button variant="ghost" size="sm">
-                个人中心
-              </Button>
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      <div className="container py-8">
-        {/* Page Title */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">RSS 市场</h1>
-          <p className="text-muted-foreground">
-            发现优质 RSS 源，订阅您感兴趣的内容
-          </p>
-        </div>
-
+    <PageShell
+      title="RSS 市场"
+      subtitle="发现优质订阅源"
+      icon={Rss}
+      iconClassName="bg-amber-50 text-amber-500 dark:bg-amber-500/15 dark:text-amber-400"
+    >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full max-w-md grid-cols-3">
             <TabsTrigger value="market">
@@ -538,8 +507,7 @@ export default function MarketPage() {
             </div>
           </TabsContent>
         </Tabs>
-      </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -560,7 +528,7 @@ function FeedCard({
     <div className="bg-card rounded-xl border p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3">
         <img
-          src={feed.feed?.icon || `https://api.dicebear.com/7.x/initials/svg?seed=${feed.feed?.title || "RSS"}`}
+          src={feed.feed?.icon || generateInitialIcon(feed.feed?.title || "RSS")}
           alt={feed.feed?.title || "RSS"}
           className="w-12 h-12 rounded-xl flex-shrink-0"
         />

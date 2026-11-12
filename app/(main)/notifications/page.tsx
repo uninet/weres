@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { PageShell } from "@/components/page-shell";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -248,74 +249,70 @@ export default function NotificationsPage() {
       handleMarkRead([notification.id]);
     }
 
-    // 根据通知类型处理跳转
+    // 根据通知类型处理跳转。
+    //
+    // 参数名必须是 articleId：阅读器读的是 `?articleId=`，这里原本写的
+    // 是 `?article=`，点通知只是跳到阅读器默认界面，目标文章从来没打开过。
     if (notification.type === "FEED_UPDATE" && notification.data?.articleId) {
-      router.push(`/reader?article=${notification.data.articleId}`);
+      router.push(`/reader?articleId=${notification.data.articleId}`);
+    } else if (
+      notification.type === "FEED_UPDATE" &&
+      notification.data?.feedId
+    ) {
+      // 只有源、没有具体文章时（批量更新），至少把用户带到阅读器
+      router.push("/reader");
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-50 rounded-lg">
-                <Bell className="w-6 h-6 text-purple-500" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">消息中心</h1>
-                <p className="text-sm text-gray-500">
-                  {unreadCount > 0
-                    ? `你有 ${unreadCount} 条未读通知`
-                    : "暂无未读通知"}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {unreadCount > 0 && (
-                <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
-                  <Check className="w-4 h-4 mr-1" />
-                  全部已读
+    <PageShell
+      title="消息中心"
+      subtitle={
+        unreadCount > 0 ? `你有 ${unreadCount} 条未读通知` : "暂无未读通知"
+      }
+      icon={Bell}
+      iconClassName="bg-purple-50 text-purple-500 dark:bg-purple-500/15 dark:text-purple-400"
+      actions={
+        <>
+          {unreadCount > 0 && (
+            <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
+              <Check className="w-4 h-4 mr-1" />
+              全部已读
+            </Button>
+          )}
+          {notifications.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  清空
                 </Button>
-              )}
-              {notifications.length > 0 && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      <Trash2 className="w-4 h-4 mr-1" />
-                      清空
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>确认清空所有通知？</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        此操作将删除所有通知记录，无法恢复。
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>取消</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleClearAll}
-                        className="bg-red-500 hover:bg-red-600"
-                      >
-                        确认清空
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>确认清空所有通知？</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    此操作将删除所有通知记录，无法恢复。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleClearAll}
+                    className="bg-red-500 hover:bg-red-600"
+                  >
+                    确认清空
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </>
+      }
+    >
       {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <div className="-mx-3 mb-4 border-b border-black/[0.06] px-1 dark:border-white/[0.08]">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
               <TabsTrigger
                 value="all"
@@ -335,12 +332,9 @@ export default function NotificationsPage() {
                 )}
               </TabsTrigger>
             </TabsList>
-          </Tabs>
-        </div>
+        </Tabs>
       </div>
 
-      {/* Content */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
@@ -500,7 +494,6 @@ export default function NotificationsPage() {
             )}
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

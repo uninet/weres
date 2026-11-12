@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { parsePagination } from "@/lib/pagination";
 import { readJsonBody } from "@/lib/request";
+import { sanitizePlainText } from "@/lib/sanitize";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -64,7 +65,9 @@ export async function GET(req: Request) {
         article: {
           id: h.article.id,
           title: h.article.title,
-          description: h.article.description,
+          // description 来自第三方 RSS，历史数据里可能残留 HTML 片段（写入口
+          // 加固前入库的），出库再净化一次，否则列表会显示标签源码。
+          description: sanitizePlainText(h.article.description),
           link: h.article.link,
           author: h.article.author,
           pubDate: h.article.pubDate,

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { parseRSSFeed, extractFavicon } from "@/lib/rss-parser";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
-import { sanitizeArticleHtml } from "@/lib/sanitize";
+import { sanitizeArticleHtml, sanitizePlainText } from "@/lib/sanitize";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -149,7 +149,10 @@ export async function POST(req: Request) {
           feedId: feed.id,
           title: item.title,
           link: item.link,
-          description: item.description || '',
+          // 摘要同样要剥标签：这个字段来自第三方 RSS，IT之家等源塞的是
+          // 带私有属性的 HTML 片段，少数派还会在末尾追加「…<a>查看全文</a>」。
+          // 直接落库的话，历史页/收藏页会把标签源码原样显示出来。
+          description: sanitizePlainText(item.contentSnippet || item.description) || '',
           content: sanitizeArticleHtml(item.content || ''),
           author: item.author || '',
           pubDate: item.pubDate ? new Date(item.pubDate) : new Date(),
