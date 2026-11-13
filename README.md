@@ -310,7 +310,7 @@ SMTP_FROM="you@qq.com"
 | POST | `/api/auth/login` | 登录（设置 Cookie） |
 | POST | `/api/auth/logout` | 登出（清除 Cookie） |
 | GET | `/api/auth/me` | 当前用户 |
-| POST | `/api/auth/forgot-password` | 发送密码重置邮件（未配 SMTP 时返回 503） |
+| POST | `/api/auth/forgot-password` | 发送密码重置邮件（未配 SMTP 时返回 503，且不消耗发信额度） |
 | POST | `/api/auth/reset-password` | 用邮件里的 token 设置新密码 |
 | GET | `/api/articles` | 文章列表，支持 `feedId` `groupId` `type` `search` `page` `pageSize` |
 | GET | `/api/articles/:id` | 文章详情（校验订阅归属） |
