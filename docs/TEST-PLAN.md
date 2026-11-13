@@ -413,6 +413,7 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | Z-10 | 注册页无死链 | 协议链接指向 `/terms`，不存在 `href="#"` |
 | Z-11 | 条款与隐私页可访问 | `/terms` 返回 200，`h1` 含「条款」，至少 2 个 `section` |
 | Z-12 | 首页对已登录用户直接进阅读器 | 访问 `/` 落到 `/reader`（改造前看到的是「开始使用/注册」） |
+| Z-13 | 注册页密码提示与服务端一致 | 提示里不出现后端并不要求的项（曾列了「大写字母」「特殊字符」），且合法密码下清单全绿 |
 
 > **这一组最初是空头支票。** 文档先写了 Z-01..Z-07，脚本里一条都没实现——
 > 等于没验收就宣称自己在守。补实现时踩到三个坑，都记在这里：
@@ -520,7 +521,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 
 ```
 npm run verify:e2e   → 结果：85/85 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
-npm run verify:ui    → 结果：46/46 通过
+npm run verify:ui    → 结果：47/47 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

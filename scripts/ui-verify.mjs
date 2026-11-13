@@ -1018,6 +1018,37 @@ async function main() {
       `${terms.h1} · ${terms.sections} 节`
     );
 
+    // NEW-PW：注册页的密码要求必须与服务端一致。
+    // 原先列了「包含大写字母」「包含特殊字符」，但 registerSchema 并不要求，
+    // 用户看到打叉的条目会以为密码不合法，把本来能用的密码改复杂。
+    await ap.goto(`${BASE}/register`, { waitUntil: "networkidle" });
+    await ap.waitForTimeout(500);
+    await ap.fill("#password", "abc12345");
+    await ap.waitForTimeout(700);
+    const pwUI = await ap.evaluate(() => {
+      const box = document.querySelector("#password-requirements");
+      if (!box) return { rows: [], text: "" };
+      const rows = [...box.querySelectorAll("div")].filter((d) =>
+        d.className.includes("flex items-center gap-2 text-xs")
+      );
+      return {
+        rows: rows.map((r) => ({ t: r.innerText.trim(), ok: !!r.querySelector("svg.text-green-500") })),
+        text: box.innerText,
+      };
+    });
+    const allGreen = pwUI.rows.length > 0 && pwUI.rows.every((r) => r.ok);
+    const noPhantom = !/大写|特殊字符/.test(pwUI.text);
+    record(
+      "Z-13",
+      "注册页密码要求与服务端一致",
+      allGreen && noPhantom,
+      allGreen
+        ? noPhantom
+          ? `${pwUI.rows.length} 项全通过，无多余要求`
+          : "仍要求后端不要求的项"
+        : `未全部通过：${pwUI.rows.filter((r) => !r.ok).map((r) => r.t).join("/") || "无清单"}`
+    );
+
     // NEW4：首页对已登录用户直接进阅读器。
     // 之前已登录访问 / 仍然看到「开始使用/注册」，点了被 AuthGuard 弹回来。
     await ap.goto(`${BASE}/login`, { waitUntil: "networkidle" });

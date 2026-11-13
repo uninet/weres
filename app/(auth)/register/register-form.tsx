@@ -61,36 +61,43 @@ function PasswordStrengthIndicator({ strength }: { strength: number }) {
 
   const level = levels[Math.min(strength - 1, 4)];
 
+  // 还没开始输入时不渲染——5 条灰条挂在输入框下面像残影，
+  // 而不是"这是强度指示器"。
+  if (strength === 0) return null;
+
   return (
-    <div className="mt-2 space-y-1">
-      <div className="flex gap-1 h-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            className={cn(
-              "flex-1 rounded-full transition-colors duration-300",
-              i <= strength ? level.color : "bg-muted"
-            )}
-          />
-        ))}
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className={cn("shrink-0 text-xs", level.color.replace("bg-", "text-"))}>
+          {level.label}
+        </span>
+        <div className="flex h-1 flex-1 gap-1">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className={cn(
+                "flex-1 rounded-full transition-colors duration-300",
+                i <= strength ? level.color : "bg-muted"
+              )}
+            />
+          ))}
+        </div>
       </div>
-      {strength > 0 && (
-        <p className={cn("text-xs", level.color.replace("bg-", "text-"))}>
-          密码强度: {level.label}
-        </p>
-      )}
     </div>
   );
 }
 
 // 密码要求检查项
 function PasswordRequirements({ password }: { password: string }) {
+  // 这里列的必须与服务端 zxcv 规则完全一致，多一条就是骗人：
+  // 原先列了「大写字母」「特殊字符」，但 registerSchema 并不要求它们，
+  // 用户看到一个打叉的「包含大写字母」，会以为密码不合法，把已经能用的
+  // 密码改成更复杂的。多要求 = 凭空增加记忆负担。
   const requirements = [
-    { label: "至少8位字符", met: password.length >= 8 },
-    { label: "包含小写字母", met: /[a-z]/.test(password) },
-    { label: "包含大写字母", met: /[A-Z]/.test(password) },
+    { label: "至少 8 位字符", met: password.length >= 8 },
+    { label: "包含字母", met: /[A-Za-z]/.test(password) },
     { label: "包含数字", met: /\d/.test(password) },
-    { label: "包含特殊字符", met: /[^a-zA-Z0-9]/.test(password) },
+    { label: "最多 72 位", met: password.length <= 72 },
   ];
 
   return (
@@ -364,7 +371,7 @@ export function RegisterForm() {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="8-20位，包含字母和数字"
+                  placeholder="至少 8 位，包含字母和数字"
                   value={formData.password}
                   onChange={handlePasswordChange}
                   onBlur={() => handleBlur("password")}
@@ -387,15 +394,19 @@ export function RegisterForm() {
                   )}
                 </button>
               </div>
+              {/* 没输密码时强度条整块不渲染：留一个 pt-1 的空 div 会在
+                  输入框和「确认密码」之间撑出一段不明所以的空白 */}
               {fieldErrors.password ? (
                 <p id="password-error" className="text-sm text-destructive">
                   {fieldErrors.password}
                 </p>
               ) : (
-                <div id="password-requirements">
-                  <PasswordStrengthIndicator strength={passwordStrength} />
-                  {formData.password && <PasswordRequirements password={formData.password} />}
-                </div>
+                (passwordStrength > 0 || formData.password) && (
+                  <div id="password-requirements" className="space-y-2 pt-1">
+                    <PasswordStrengthIndicator strength={passwordStrength} />
+                    {formData.password && <PasswordRequirements password={formData.password} />}
+                  </div>
+                )
               )}
             </div>
 
