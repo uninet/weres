@@ -836,7 +836,51 @@ async function testPasswordReset() {
       noSmtp.status === 503 && /SMTP|邮件通道/.test(noSmtp.body.message || ""),
       `HTTP ${noSmtp.status} ${noSmtp.body.message || ""}`
     );
+
+    // 「未配置邮件通道」不该吃掉发信额度。
+    //
+    // 这个分支不发信、不查库、不建 token，没有任何可被滥用的成本；如果它
+    // 排在限流之后，用户连点几次「忘记密码」就会看到「请求过于频繁」而非
+    // 真正的原因，然后按时等待 15 分钟也永远不会好。连续打 8 次（超过
+    // strict 的 5 次）应当次次都是 503，一次都不该出现 429。
+    const attempts = [];
+    for (let i = 0; i < 8; i += 1) {
+      const r = await api("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: EMAIL }),
+      });
+      attempts.push(r.status);
+    }
+    const all503 = attempts.every((code) => code === 503);
+    record(
+      "M-02b",
+      "未配置 SMTP 时不消耗发信额度（连打 8 次仍是 503，不是 429）",
+      all503,
+      all503 ? `8 次全部 503` : `状态码：${attempts.join(" ")}`
+    );
+
     // 没配邮件通道，后面的重置链路无从验证，到此为止
+    return;
+  }
+
+  // 配了 SMTP 的部署里，这个接口有「15 分钟 5 次」的发信额度，
+  // 而本脚本每跑一轮就要用掉 2 次 —— 连着跑第三轮必然撞墙。
+  // 那说明限流在正常工作，不是接口坏了；如实标出来并给出可操作的补救，
+  // 而不是让它伪装成「忘记密码功能坏了」。
+  if (noSmtp.status === 429) {
+    record(
+      "M-01",
+      "忘记密码接口已接邮件通道",
+      false,
+      "被限流（15 分钟 5 次），不是接口故障；重启容器或在窗口过期后重跑"
+    );
+    record(
+      "M-02",
+      "未注册邮箱返回相同结果（不泄漏账号是否存在）",
+      false,
+      "同上，M-01 已被限流，无法继续验证"
+    );
+    // M-02b 只在未配 SMTP 的部署里有意义，这里不适用，不记一条假失败。
     return;
   }
 

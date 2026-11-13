@@ -41,6 +41,24 @@ export async function POST(req: Request) {
     // 这里只能按 IP 限流（邮箱在 body 里，伪造一个没注册的邮箱就绕过了），
     // 而 X-Forwarded-For 客户端可伪造 —— 所以必须再叠一层全局上限，
     // 否则换 IP 就能把这台实例当作发信机用。
+    // 先确认有没有邮件通道，再决定要不要记这次额度。
+    //
+    // 没配 SMTP 时这个分支只回一句话：不发信、不查库、不建 token，
+    // 它没有任何可被滥用的成本，却要占掉「15 分钟 5 次」的发信额度 ——
+    // 结果是用户点几次之后看到的是「请求过于频繁」，而不是真正的原因
+    // 「服务端没配邮件通道」，照着前者去等 15 分钟也永远不会好。
+    const smtp = getSmtpConfig();
+    if (!smtp) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "服务端未配置邮件通道，无法发送重置邮件。请改用注册新账号，或联系部署者。",
+        },
+        { status: 503 }
+      );
+    }
+
     const globalRate = checkGlobalRateLimit(
       "forgot-password",
       rateLimitConfigs.globalForgotPassword
@@ -56,18 +74,6 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null);
     const { email } = requestSchema.parse(body);
-
-    const smtp = getSmtpConfig();
-    if (!smtp) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "服务端未配置邮件通道，无法发送重置邮件。请改用注册新账号，或联系部署者。",
-        },
-        { status: 503 }
-      );
-    }
 
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
