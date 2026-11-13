@@ -490,14 +490,35 @@ async function testQuery() {
     `实际 pageSize=${bigSize}`
   );
 
-  const search = await api("/api/articles?search=React&pageSize=10");
-  const searchList = search.body?.data?.articles || [];
-  record(
-    "E-05",
-    "搜索命中标题/摘要",
-    searchList.length > 0,
-    `命中 ${searchList.length} 条`
-  );
+  // 关键字必须取自库里真实存在的文章。
+  //
+  // 原来写死 `search=React`，测的其实是「今天库里恰好有 React 相关的文章吗」：
+  // 全新克隆的库只有 4 篇 seed 示例（游戏新闻），一条都不含 React，于是这条
+  // 在全新实例上必然失败，而搜索功能本身完全正常。这是同一类错误的第四次
+  // （前三次分别是源名写死「运营派」、分页断言用绝对像素、正文长度阈值 400）。
+  const sample = await api("/api/articles?pageSize=1");
+  const sampleTitle = sample.body?.data?.articles?.[0]?.title || "";
+  // 取标题里最长的一个词做关键字，太短（1 个字）会命中一切，测不出东西
+  const keyword =
+    sampleTitle
+      .split(/[\s：:，,。！!？?、·《》「」()（）\-—|/]+/)
+      .filter((w) => w.length >= 2)
+      .sort((a, b) => b.length - a.length)[0] || "";
+
+  if (!keyword) {
+    record("E-05", "搜索命中标题/摘要", false, "库里没有可用作关键字的长词");
+  } else {
+    const search = await api(
+      `/api/articles?search=${encodeURIComponent(keyword)}&pageSize=10`
+    );
+    const searchList = search.body?.data?.articles || [];
+    record(
+      "E-05",
+      "搜索命中标题/摘要",
+      searchList.length > 0,
+      `关键字「${keyword}」命中 ${searchList.length} 条`
+    );
+  }
 
   const noMatch = await api("/api/articles?search=ZZZNOMATCHZZZ&pageSize=10");
   const noMatchTotal = noMatch.body?.data?.pagination?.total;
