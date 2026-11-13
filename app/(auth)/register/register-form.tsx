@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Rss, Eye, EyeOff, Loader2, Check, X } from "lucide-react";
+import { Eye, EyeOff, Loader2, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AuthShell } from "@/components/auth-shell";
 
 // 验证函数
 const validateEmail = (email: string): string => {
@@ -278,19 +279,18 @@ export function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4 py-8">
-      <div className="w-full max-w-md space-y-8">
-        {/* Logo */}
-        <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <Rss className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">WeRSS</span>
+    <AuthShell
+      title="创建账号"
+      subtitle="注册后即可订阅任意 RSS 源"
+      footer={
+        <>
+          已有账号？{" "}
+          <Link href="/login" className="font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]">
+            立即登录
           </Link>
-          <p className="mt-2 text-muted-foreground">创建新账号</p>
-        </div>
-
-        {/* Form */}
-        <div className="bg-card p-8 rounded-xl border shadow-sm">
+        </>
+      }
+    >
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div
@@ -446,11 +446,19 @@ export function RegisterForm() {
                 />
                 <span className="text-muted-foreground">
                   我已阅读并同意
-                  <Link href="#" className="text-primary hover:underline">
+                  <Link
+                    href="/terms#terms"
+                    target="_blank"
+                    className="font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]"
+                  >
                     用户协议
                   </Link>
                   和
-                  <Link href="#" className="text-primary hover:underline">
+                  <Link
+                    href="/terms#privacy"
+                    target="_blank"
+                    className="font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]"
+                  >
                     隐私政策
                   </Link>
                 </span>
@@ -473,15 +481,6 @@ export function RegisterForm() {
               )}
             </Button>
           </form>
-
-          <div className="mt-6 text-center text-sm">
-            已有账号？{" "}
-            <Link href="/login" className="text-primary hover:underline">
-              立即登录
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
+    </AuthShell>
   );
 }

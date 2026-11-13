@@ -4,9 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Rss, ArrowLeft, Mail, Info, Loader2 } from "lucide-react";
+import { Mail, Info, Loader2 } from "lucide-react";
+import { AuthShell } from "@/components/auth-shell";
 import { toast } from "sonner";
 
 export default function ForgotPasswordPage() {
@@ -55,36 +55,20 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <Rss className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              WeRSS
-            </span>
+    <AuthShell
+      title="忘记密码"
+      subtitle="输入注册邮箱，我们会发一封带重置链接的邮件"
+      backHref="/login"
+      footer={
+        <>
+          遇到问题？{" "}
+          <Link href="/help" className="font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]">
+            查看帮助
           </Link>
-        </div>
-
-        <Card>
-          <CardHeader className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Link href="/login">
-                <Button variant="ghost" size="icon" className="h-8 w-8 -ml-2">
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              </Link>
-              <CardTitle className="text-xl">忘记密码</CardTitle>
-            </div>
-            <CardDescription>
-              输入注册邮箱，我们会发一封带重置链接的邮件
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!isSubmitted ? (
+        </>
+      }
+    >
+      {!isSubmitted ? (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="email">邮箱地址</Label>
@@ -122,7 +106,7 @@ export default function ForgotPasswordPage() {
                   <p>想起密码了？</p>
                   <Link
                     href="/login"
-                    className="text-blue-600 hover:text-blue-700 font-medium"
+                    className="text-[#a8894a] font-medium hover:underline dark:text-[#d9bd82]"
                   >
                     返回登录
                   </Link>
@@ -202,17 +186,7 @@ export default function ForgotPasswordPage() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Footer */}
-        <p className="text-center text-sm text-gray-500 mt-8">
-          遇到问题？{" "}
-          <Link href="/help" className="text-blue-600 hover:text-blue-700">
-            联系客服
-          </Link>
-        </p>
-      </div>
-    </div>
+    
+    </AuthShell>
   );
 }

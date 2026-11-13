@@ -408,10 +408,32 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | Z-05 | 收藏/历史「打开原文」跳外链 | 新标签页打开原始链接，带 `noopener,noreferrer` |
 | Z-06 | 通知点击进目标文章 | `/reader?articleId=<id>`（此前误写成 `?article=`，入口从未生效） |
 | Z-07 | 无第三方图标请求 | 页面加载不请求 `api.dicebear.com`，图标为本地生成的 SVG |
+| Z-08 | 四个认证页视觉一致 | 卡片宽度相同（448px），且不再出现已废弃的蓝紫渐变底 |
+| Z-09 | 四个认证页都有页面标题 | `h1` 存在且长度合理（不是空标题也不是整段文案） |
+| Z-10 | 注册页无死链 | 协议链接指向 `/terms`，不存在 `href="#"` |
+| Z-11 | 条款与隐私页可访问 | `/terms` 返回 200，`h1` 含「条款」，至少 2 个 `section` |
+| Z-12 | 首页对已登录用户直接进阅读器 | 访问 `/` 落到 `/reader`（改造前看到的是「开始使用/注册」） |
+
+> **这一组最初是空头支票。** 文档先写了 Z-01..Z-07，脚本里一条都没实现——
+> 等于没验收就宣称自己在守。补实现时踩到三个坑，都记在这里：
+>
+> 1. **Z-03 要复用登录态。** 用 `browser.newPage()` 会开全新 context（无 cookie），
+>    进去直接被 AuthGuard 弹到登录页，量出「底部导航 0 项」——测的是登录页。
+>    必须 `browser.newContext({ storageState: await 已登录page.context().storageState() })`。
+> 2. **Z-04 不能断言 URL 里一直有 `?articleId=`。** 深链加载后阅读器会把地址栏
+>    换回 `/reader`（否则换下一篇时地址栏还是旧 id，刷新会跳回去）。
+>    真正要守的是「点收藏标题，进来的是同一篇文章」，所以比 `h1` 而不是比 URL。
+> 3. **Z-04 的标题不是 `<button>`。** 它是 `<h3 onClick>`，用 `button:has(h3)`
+>    永远数到 0，会退化成「收藏夹为空，跳过」——跳过等于没测。
+>    改成先取第一篇标题；收藏为空时先调收藏接口造一条数据再测。
+>
+> **验证手法**（每个断言都要证明它会失败）：把收藏页行为临时改回
+> `window.open(link)`，Z-04 报「`/favorites` · 我的收藏」；恢复后通过。
+> 永远绿的用例比没有用例更危险。
 
 ## 4. 自动化执行
 
-一条命令跑完 A–Y 的全部可自动化用例：
+一条命令跑完 A–Z 的全部可自动化用例：
 
 ```bash
 node scripts/e2e-verify.mjs
@@ -420,13 +442,13 @@ node scripts/e2e-verify.mjs
 脚本会：
 1. 检查 `/api/health`；
 2. 登录拿 cookie；
-3. 逐条断言 A–Y 的 API 层用例；
+3. 逐条断言 A–Y 的 API 层用例，Z 组走浏览器层；
 4. 用 Playwright 打开真实浏览器验证 UI 层用例（订阅 toast、左栏可见、快捷键、主题）；
 5. 输出 PASS/FAIL 汇总表，任一条失败则退出码非 0。
 
 ## 5. 通过标准
 
-- A–Y 全部用例 PASS；
+- A–Z 全部用例 PASS；
 - `npx tsc --noEmit`、`npx next lint`、`npx vitest run` 均无错误；
 - 容器 `healthy`，重启后数据一致。
 
@@ -492,7 +514,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 
 ```
 npm run verify:e2e   → 结果：85/85 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
-npm run verify:ui    → 结果：36/36 通过
+npm run verify:ui    → 结果：46/46 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

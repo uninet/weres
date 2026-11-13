@@ -5,10 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Rss, CheckCircle2, Info, Loader2, Lock } from "lucide-react";
+import { CheckCircle2, Info, Loader2, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { AuthShell } from "@/components/auth-shell";
 
 /**
  * 重置密码页。
@@ -79,29 +79,21 @@ function ResetPasswordForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <Rss className="w-6 h-6 text-white" />
-            </div>
-            <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              WeRSS
-            </span>
+    <AuthShell
+      title="设置新密码"
+      subtitle={
+        missingToken ? "这个链接缺少重置令牌" : "输入新密码后，旧密码立即失效"
+      }
+      backHref="/login"
+      footer={
+        <>
+          想起来了？{" "}
+          <Link href="/login" className="font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]">
+            返回登录
           </Link>
-        </div>
-
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">设置新密码</CardTitle>
-            <CardDescription>
-              {missingToken
-                ? "这个链接缺少重置令牌"
-                : "输入新密码后，旧密码立即失效"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        </>
+      }
+    >
             {missingToken ? (
               <div className="text-center py-6">
                 <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -183,17 +175,14 @@ function ResetPasswordForm() {
                 <div className="text-center text-sm text-gray-500">
                   <Link
                     href="/login"
-                    className="text-blue-600 hover:text-blue-700 font-medium"
+                    className="text-[#a8894a] font-medium hover:underline dark:text-[#d9bd82]"
                   >
                     返回登录
                   </Link>
                 </div>
               </form>
             )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
 
@@ -207,8 +196,8 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+        <div className="flex min-h-screen items-center justify-center bg-[#f5f5f7] dark:bg-[#151517]">
+          <Loader2 className="h-6 w-6 animate-spin text-[#c9a962]" />
         </div>
       }
     >

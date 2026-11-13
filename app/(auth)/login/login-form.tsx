@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Rss, Eye, EyeOff, Loader2, User, ArrowRight } from "lucide-react";
+import { Eye, EyeOff, Loader2, User, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { AuthShell } from "@/components/auth-shell";
 
 // 表单验证函数
 const validateEmail = (email: string): string => {
@@ -119,19 +120,18 @@ export function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4">
-      <div className="w-full max-w-md space-y-8">
-        {/* Logo */}
-        <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <Rss className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">WeRSS</span>
+    <AuthShell
+      title="登录"
+      subtitle="用邮箱和密码登录，继续你的订阅"
+      footer={
+        <>
+          还没有账号？{" "}
+          <Link href="/register" className="font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]">
+            立即注册
           </Link>
-          <p className="mt-2 text-muted-foreground">登录您的账号</p>
-        </div>
-
-        {/* Form */}
-        <div className="bg-card p-8 rounded-xl border shadow-sm">
+        </>
+      }
+    >
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
@@ -208,7 +208,7 @@ export function LoginForm() {
             <div className="flex items-center justify-between">
               <Link
                 href="/forgot-password"
-                className="text-sm text-primary hover:underline"
+                className="text-sm font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]"
               >
                 忘记密码？
               </Link>
@@ -227,19 +227,19 @@ export function LoginForm() {
           </form>
 
           {/* Guest Mode Entry */}
-          <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950/30 dark:to-blue-950/30 border border-purple-200 dark:border-purple-800 rounded-lg">
+          <div className="mt-6 rounded-lg border border-black/[0.07] bg-[#faf8f4] p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
-                <User className="h-4 w-4 text-white" />
-              </div>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#c9a962]/15">
+                <User className="h-3.5 w-3.5 text-[#a8894a] dark:text-[#d9bd82]" />
+              </span>
               <div className="flex-1">
-                <p className="text-sm font-medium text-purple-900 dark:text-purple-200">游客模式</p>
-                <p className="text-xs text-purple-700/70 dark:text-purple-300/70 mt-1">
-                  不想登录？您也可以以游客身份浏览，但部分功能会受到限制。
+                <p className="text-[13px] font-medium text-[#1c1c1e] dark:text-[#f5f5f7]">游客模式</p>
+                <p className="mt-1 text-xs leading-relaxed text-[#8a8a8e] dark:text-[#8e8e93]">
+                  不想登录？也可以游客身份浏览，但部分功能会受限。
                 </p>
-                <Link 
-                  href="/reader" 
-                  className="inline-flex items-center gap-1 mt-2 text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-medium"
+                <Link
+                  href="/reader"
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#a8894a] hover:underline dark:text-[#d9bd82]"
                 >
                   以游客身份进入
                   <ArrowRight className="h-3 w-3" />
@@ -274,14 +274,6 @@ export function LoginForm() {
             </div>
           </div>
 
-          <div className="mt-6 text-center text-sm">
-            还没有账号？{" "}
-            <Link href="/register" className="text-primary hover:underline">
-              立即注册
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
+    </AuthShell>
   );
 }

@@ -759,6 +759,279 @@ async function main() {
   }
   await loginPage.close();
 
+  // -------------------------------------------------------------------------
+  // Z. 页面导航与外壳一致性
+  // -------------------------------------------------------------------------
+  // 改造前 7 个次级页面各画各的顶栏（三种高度、两套导航语言）。
+  // 这一组守住「统一」这件事本身 —— 它很容易在下一次改版里悄悄退回原状，
+  // 而且退回去以后页面仍然"能看"，只是又变成三种高度。
+  {
+    const inner = { width: 1440, height: 900 };
+    const zp = await browser.newPage({ viewport: inner });
+    // 登录一次
+    await zp.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+    await zp.fill('input[type="email"]', EMAIL);
+    await zp.fill('input[type="password"]', PASSWORD);
+    await Promise.all([
+      zp.waitForURL(/reader/, { timeout: 25000 }).catch(() => {}),
+      zp.click('button[type="submit"]'),
+    ]);
+    await zp.waitForTimeout(2500);
+
+    // Z-01 / Z-02：逐页量顶栏高度、查返回入口。
+    // 「我的」是主入口，本来就不该有返回箭头 —— 断言要按这个区别对待，
+    // 而不是一刀切要求都有返回。
+    const pages = [
+      { path: "/favorites", back: true },
+      { path: "/history", back: true },
+      { path: "/notifications", back: true },
+      { path: "/settings", back: true },
+      { path: "/subscriptions", back: true },
+      { path: "/market", back: true },
+      { path: "/help", back: true },
+      { path: "/profile", back: false },
+    ];
+    const heights = [];
+    const backMiss = [];
+    for (const p of pages) {
+      await zp.goto(`${BASE}${p.path}`, { waitUntil: "networkidle" });
+      await zp.waitForTimeout(700);
+      const m = await zp.evaluate(() => {
+        const h = document.querySelector("header");
+        const r = h?.getBoundingClientRect();
+        const hasBack = Boolean(document.querySelector('header a[aria-label="返回"]'));
+        return { height: r ? Math.round(r.height) : 0, hasBack };
+      });
+      heights.push({ path: p.path, height: m.height });
+      if (p.back && !m.hasBack) backMiss.push(p.path);
+      if (!p.back && m.hasBack) backMiss.push(`${p.path}(不该有返回)`);
+    }
+    const distinct = [...new Set(heights.map((h) => h.height))];
+    record(
+      "Z-01",
+      "次级页面顶栏高度一致",
+      distinct.length === 1 && distinct[0] === 57,
+      `高度集合 ${distinct.join("/")}px（${heights.length} 个页面）`
+    );
+    record(
+      "Z-02",
+      "次级页面返回入口符合预期",
+      backMiss.length === 0,
+      backMiss.length ? `不符合：${backMiss.join(", ")}` : "「我的」无返回，其余均有"
+    );
+
+    // Z-03：移动端底部导航在任意次级页面都常驻。
+    // 改造前它只在 4 个 href 上渲染，进订阅管理/历史/通知/设置就完全没导航。
+    // 注意：必须用 isMobile context 复用登录态。browser.newPage() 会开一个
+    // 全新的 context（没有任何 cookie），进去只会被 AuthGuard 弹到登录页，
+    // 那样断言 "底部导航 0 项" 测的是登录页而不是次级页面。
+    const mctx = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      storageState: await zp.context().storageState(),
+    });
+    const zm = await mctx.newPage();
+    await zm.goto(`${BASE}/reader`, { waitUntil: "networkidle" });
+    await zm.waitForTimeout(1500);
+    const navMiss = [];
+    for (const path of ["/subscriptions", "/history", "/notifications", "/settings", "/help"]) {
+      await zm.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
+      await zm.waitForTimeout(600);
+      const n = await zm.evaluate(() => {
+        const nav = [...document.querySelectorAll("nav")].find(
+          (x) => getComputedStyle(x).position === "fixed"
+        );
+        return nav ? nav.querySelectorAll("a").length : 0;
+      });
+      if (n !== 5) navMiss.push(`${path}(${n}项)`);
+    }
+    record(
+      "Z-03",
+      "移动端底部导航在所有页面常驻",
+      navMiss.length === 0,
+      navMiss.length ? navMiss.join(", ") : "5 个次级页面均为 5 项"
+    );
+    await zm.close();
+    await mctx.close();
+
+    // Z-04：收藏/历史点标题进站内阅读器（改造前是 window.open 跳原站，
+    // 用户一点就离开了产品）。
+    // 收藏为空时这条用例会永远"跳过" —— 跳过等于没测。先确保至少有一篇收藏：
+    // 取阅读器列表第一篇，调收藏接口（幂等，已收藏再收藏不会出错）。
+    await zp.goto(`${BASE}/favorites`, { waitUntil: "networkidle" });
+    await zp.waitForTimeout(1000);
+    // 标题是 <h3 onClick>，不是包在 button 里 —— 用 button:has(h3) 会永远数到 0
+    const favCount = await zp.evaluate(() =>
+      document.querySelectorAll("h3.font-medium").length
+    );
+    if (favCount === 0) {
+      const seeded = await zp.evaluate(async () => {
+        const r = await fetch("/api/articles?page=1&pageSize=1");
+        const j = await r.json();
+        const id = j?.data?.items?.[0]?.id;
+        if (!id) return null;
+        const f = await fetch(`/api/articles/${id}/favorite`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        return f.ok ? id : null;
+      });
+      if (seeded) {
+        await zp.goto(`${BASE}/favorites`, { waitUntil: "networkidle" });
+        await zp.waitForTimeout(1200);
+      }
+    }
+    const favTitle = zp.locator("h3.font-medium").first();
+    if ((await favTitle.count()) > 0) {
+      // 不能断言 URL 里一直保留 ?articleId= —— 深链处理后阅读器会把地址栏
+      // 换回 /reader（否则换下一篇时地址栏还是旧 id，刷新会跳回去）。
+      // 真正要守的是「点收藏标题，进来的是同一篇文章」，所以比标题。
+      const wantTitle = (await favTitle.innerText()).trim();
+      await favTitle.click();
+      await zp.waitForTimeout(2500);
+      const landed = await zp.evaluate(() => ({
+        path: location.pathname,
+        h1: document.querySelector("h1")?.innerText?.trim() || "",
+      }));
+      const same = landed.h1 && wantTitle && (landed.h1.includes(wantTitle.slice(0, 12)) || wantTitle.includes(landed.h1.slice(0, 12)));
+      record(
+        "Z-04",
+        "收藏点标题进站内阅读器",
+        landed.path === "/reader" && Boolean(same),
+        `${landed.path} · ${landed.h1.slice(0, 24)}`
+      );
+    } else {
+      record("Z-04", "收藏页有可点文章", false, "收藏夹为空，跳过");
+    }
+
+    // Z-07 / NEW：页面加载不请求第三方图标服务。
+    // 之前订阅源缺图时回落到 api.dicebear.com —— 内网部署会被墙，
+    // 断网裂图，还把「谁订阅了什么」的标题泄给第三方。
+    const thirdParty = new Set();
+    const zp2 = await browser.newPage({ viewport: inner });
+    zp2.on("request", (r) => {
+      try {
+        const u = new URL(r.url());
+        if (!["127.0.0.1", "localhost"].includes(u.hostname) && !u.hostname.endsWith("ithome.com")) {
+          thirdParty.add(u.hostname);
+        }
+      } catch {}
+    });
+    await zp2.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+    await zp2.fill('input[type="email"]', EMAIL);
+    await zp2.fill('input[type="password"]', PASSWORD);
+    await Promise.all([
+      zp2.waitForURL(/reader/, { timeout: 25000 }).catch(() => {}),
+      zp2.click('button[type="submit"]'),
+    ]);
+    await zp2.waitForTimeout(2000);
+    await zp2.goto(`${BASE}/market`, { waitUntil: "networkidle" });
+    await zp2.waitForTimeout(2000);
+    await zp2.goto(`${BASE}/subscriptions`, { waitUntil: "networkidle" });
+    await zp2.waitForTimeout(1500);
+    record(
+      "Z-07",
+      "不请求第三方图标服务",
+      !thirdParty.has("api.dicebear.com"),
+      thirdParty.size ? `外部域名：${[...thirdParty].join(", ")}` : "无外部图标请求"
+    );
+    await zp2.close();
+    await zp.close();
+  }
+
+  // -------------------------------------------------------------------------
+  // A-AUTH. 认证页面外壳与条款
+  // -------------------------------------------------------------------------
+  // 四个认证页原本各写一套：登录/注册是纯色图标 + 灰底，忘记/重置密码是
+  // 渐变 Logo + 蓝紫渐变底 + Card。统一走 AuthShell 之后，
+  // 这里守住「四个页面是同一个产品」这件事。
+  {
+    const ap = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+    const authPages = ["/login", "/register", "/forgot-password", "/reset-password"];
+    const widths = [];
+    const titles = [];
+    for (const p of authPages) {
+      await ap.goto(`${BASE}${p}`, { waitUntil: "networkidle" });
+      await ap.waitForTimeout(500);
+      const m = await ap.evaluate(() => {
+        // AuthShell 的卡片是 rounded-2xl 的白框
+        const card = document.querySelector(".rounded-2xl");
+        const r = card?.getBoundingClientRect();
+        return {
+          w: r ? Math.round(r.width) : 0,
+          h1: document.querySelector("h1")?.innerText?.trim() || "",
+          // 渐变蓝紫底已废弃：现在统一暖灰
+          gradient: Boolean(document.querySelector('[class*="from-blue-50"]')),
+        };
+      });
+      widths.push(m.w);
+      titles.push(m.h1);
+      if (m.gradient) widths.push(-1); // 用负数标记回归
+    }
+    const uniqW = [...new Set(widths)];
+    record(
+      "Z-08",
+      "四个认证页卡片宽度一致",
+      uniqW.length === 1 && uniqW[0] > 0,
+      `宽度集合 ${uniqW.join("/")}px`
+    );
+    record(
+      "Z-09",
+      "四个认证页都有页面标题",
+      titles.every((t) => t.length > 0 && t.length < 12),
+      titles.join(" / ")
+    );
+
+    // NEW2：注册页的协议链接必须指向真实页面。
+    // 之前是 href="#" —— 用户被迫勾选「我已阅读并同意」，而协议根本不存在。
+    await ap.goto(`${BASE}/register`, { waitUntil: "networkidle" });
+    await ap.waitForTimeout(500);
+    const hrefs = await ap.evaluate(() =>
+      [...document.querySelectorAll("a")].map((a) => a.getAttribute("href")).filter(Boolean)
+    );
+    const dead = hrefs.filter((h) => h === "#" || h === "");
+    record(
+      "Z-10",
+      "注册页无死链（协议链接指向真实页面）",
+      dead.length === 0 && hrefs.some((h) => h.startsWith("/terms")),
+      dead.length ? `仍有 ${dead.length} 个 href="#"` : "协议链接指向 /terms"
+    );
+
+    // NEW3：条款页可访问且两节都在
+    await ap.goto(`${BASE}/terms`, { waitUntil: "networkidle" });
+    await ap.waitForTimeout(500);
+    const terms = await ap.evaluate(() => ({
+      h1: document.querySelector("h1")?.innerText || "",
+      sections: document.querySelectorAll("section").length,
+    }));
+    record(
+      "Z-11",
+      "条款与隐私页可访问",
+      terms.h1.includes("条款") && terms.sections >= 2,
+      `${terms.h1} · ${terms.sections} 节`
+    );
+
+    // NEW4：首页对已登录用户直接进阅读器。
+    // 之前已登录访问 / 仍然看到「开始使用/注册」，点了被 AuthGuard 弹回来。
+    await ap.goto(`${BASE}/login`, { waitUntil: "networkidle" });
+    await ap.fill('input[type="email"]', EMAIL);
+    await ap.fill('input[type="password"]', PASSWORD);
+    await Promise.all([
+      ap.waitForURL(/reader/, { timeout: 25000 }).catch(() => {}),
+      ap.click('button[type="submit"]'),
+    ]);
+    await ap.waitForTimeout(2000);
+    await ap.goto(`${BASE}/`, { waitUntil: "networkidle" });
+    await ap.waitForTimeout(1500);
+    record(
+      "Z-12",
+      "已登录访问首页直接进阅读器",
+      /\/reader/.test(ap.url()),
+      ap.url().replace(BASE, "")
+    );
+    await ap.close();
+  }
+
   // 恢复默认，避免影响下次运行
   await page.evaluate((key) => localStorage.removeItem(key), prefKey);
 

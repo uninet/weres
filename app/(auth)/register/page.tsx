@@ -1,34 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { Rss } from "lucide-react";
 import { RegisterForm } from "./register-form";
 
+/**
+ * 注册页。
+ *
+ * 外壳（背景、品牌区、卡片框）由 `RegisterForm` 内部的 `AuthShell` 提供，
+ * 这里不再套一层 —— 之前页面和表单各画了一套 Logo 和卡片，同一个页面上
+ * 叠了两个品牌区。
+ */
 export default function RegisterPage() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 px-4 py-8">
-      <div className="w-full max-w-md space-y-8">
-        {/* Logo */}
-        <div className="text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <Rss className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">WeRSS</span>
-          </Link>
-          <p className="mt-2 text-muted-foreground">创建新账号</p>
-        </div>
-
-        {/* Form */}
-        <div className="bg-card p-8 rounded-xl border shadow-sm">
-          <RegisterForm />
-
-          <div className="mt-6 text-center text-sm">
-            已有账号？{" "}
-            <Link href="/login" className="text-primary hover:underline">
-              立即登录
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <RegisterForm />;
 }
