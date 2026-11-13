@@ -1201,8 +1201,74 @@ async function main() {
       urlError.text || "没有错误提示"
     );
     await addPage.fill("#feed-url", "");
-
     await addPage.close();
+
+    // AA-06：侧栏的「添加」入口必须真的在可视区内，并且点得动。
+    //
+    // 这一条是补出来的 —— 前面 AA-01..AA-05 全都只在 /add 页面内部验，
+    // 而用户报的问题是「左侧列表页的添加按钮我没有看到」。根因是
+    // Radix ScrollArea 的 Viewport 内层被设成 display:table，宽度按
+    // 内容最小宽度撑到 493px，而侧栏只有 255px、外层 overflow:hidden，
+    // 钉在右端的入口直接落在裁切区外（x=453）。当时所有用例都绿，
+    // 因为它们从来只验「页面内容对不对」，没验「入口能不能被看到」。
+    //
+    // 断言两层：① 入口的矩形完整落在滚动视口内；② 真点一下能到 /add。
+    // 只验 ① 会漏掉 overlay 拦截，只验 ② 会在 Playwright 自动滚动/
+    // 强制点击下蒙混过关（它点得动不代表用户点得动）。
+    await page.goto(`${BASE}/reader`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(2500);
+
+    const addHit = await page.evaluate(() => {
+      const link = document.querySelector('a[aria-label="添加订阅"]');
+      if (!link) return { found: false };
+      const viewport = link.closest("[data-radix-scroll-area-viewport]");
+      const lr = link.getBoundingClientRect();
+      const vr = viewport ? viewport.getBoundingClientRect() : null;
+      const center = document.elementFromPoint(
+        lr.left + lr.width / 2,
+        lr.top + lr.height / 2
+      );
+      return {
+        found: true,
+        text: (link.textContent || "").trim(),
+        left: Math.round(lr.left),
+        right: Math.round(lr.right),
+        width: Math.round(lr.width),
+        height: Math.round(lr.height),
+        viewportRight: vr ? Math.round(vr.right) : null,
+        // 完整落在视口内才算「看得见」：右侧超出一个像素就开始被裁
+        inside: vr ? lr.left >= vr.left && lr.right <= vr.right && lr.width > 0 : false,
+        // 中心点上最顶层的元素是它自己或它的后代，才算「点得到」
+        clickable: Boolean(center && (center === link || link.contains(center))),
+      };
+    });
+
+    const hitOk = addHit.found && addHit.inside && addHit.clickable && addHit.width > 0;
+    record(
+      "AA-06",
+      "侧栏「添加」入口在可视区内且可点击",
+      hitOk,
+      addHit.found
+        ? `x=${addHit.left}~${addHit.right}（视口右 ${addHit.viewportRight}），` +
+          `落在视口内=${addHit.inside}，可点击=${addHit.clickable}`
+        : "没有找到入口"
+    );
+
+    if (hitOk) {
+      await Promise.all([
+        page.waitForURL(/\/add/, { timeout: 20000 }).catch(() => {}),
+        page.click('a[aria-label="添加订阅"]'),
+      ]);
+      await page.waitForTimeout(1200);
+      record(
+        "AA-07",
+        "点侧栏「添加」真的进入添加页",
+        /\/add/.test(page.url()),
+        page.url().replace(BASE, "")
+      );
+    } else {
+      record("AA-07", "点侧栏「添加」真的进入添加页", false, "入口不可用，跳过点击");
+    }
   }
 
   // 恢复默认，避免影响下次运行

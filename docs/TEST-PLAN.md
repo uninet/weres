@@ -436,6 +436,8 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 | AA-03 | 订阅/取消订阅有成功提示 | 按钮文案在「订阅」与「已订阅」之间翻转，toast 文案带源名 |
 | AA-04 | 再次点击可翻回原状态 | 两个方向都真的打到后端，不是只改本地 state |
 | AA-05 | 非法链接就地报错 | 不发起请求，输入框 `aria-invalid="true"`，错误文案说明缺 `http(s)://` |
+| AA-06 | 侧栏「添加」入口在可视区内且可点击 | 入口矩形完整落在滚动视口内，且中心点上最顶层元素是它自己（不是被 overlay 挡住） |
+| AA-07 | 点侧栏「添加」真的进入添加页 | 真实点击后地址变为 `/add` |
 
 > **AA 组是先把代码改坏、确认它会失败之后才留下的。** 只跑一次通过，
 > 无法区分「功能对」和「断言写宽了」：
@@ -456,6 +458,28 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 >
 > 另一个实现选择：订阅成功后**就地更新那一行的 state**，不重新拉整页。
 > 用户可能已经展开某组、滚到第 3 组的位置，整页重新加载会把滚动位置丢掉。
+
+> **AA-06 / AA-07 是用户报「左侧列表页的添加按钮我没有看到」之后补的。**
+> 前面五条全绿，但它们只在 `/add` 页面内部验，从来没有验过「入口本身能不能
+> 被看到」。真实根因是 Radix ScrollArea 会给 Viewport 的第一个子元素打上
+> `display: table; min-width: 100%`（本意是量滚动条宽度），而 table 的宽度
+> 按内容最小宽度撑开：「Netlab Blog - Network Lab」这类长标题让内层撑到
+> 493px，侧栏只有 255px 且外层 `overflow: hidden`，钉在右端的入口落在
+> x=453 的裁切区外——**视觉上根本不存在**。
+>
+> 修复要写在样式表里（`app/globals.css` 的
+> `[data-radix-scroll-area-viewport] > div { display: block !important }`），
+> 在组件上加 className 盖不住它（试过 `!block`，实测无效，Radix 的规则直接
+> 选择 `> div`）。
+>
+> 断言分两层是有意的：只验「矩形在视口内」会漏掉 overlay 拦截；只验
+> 「点一下能到 /add」会被 Playwright 的自动滚动/强制点击蒙混过关——它点得动
+> 不代表用户点得动。变异验证：注释掉那条 CSS 后 AA-06 报
+> `x=443~481（视口右 255），落在视口内=false，可点击=false`，AA-07 报
+> 「入口不可用，跳过点击」；恢复后两条均通过。
+>
+> 顺带把入口从「14px 灰色小加号」改成红色文字「添加」——即使位置正确，
+> 一个几乎看不见的图标也不该承担主入口的职责。
 
 > **这一组最初是空头支票。** 文档先写了 Z-01..Z-07，脚本里一条都没实现——
 > 等于没验收就宣称自己在守。补实现时踩到三个坑，都记在这里：
@@ -563,7 +587,7 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 
 ```
 npm run verify:e2e   → 结果：85/85 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
-npm run verify:ui    → 结果：52/52 通过
+npm run verify:ui    → 结果：54/54 通过
 npx vitest run       → 31 passed (3 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）

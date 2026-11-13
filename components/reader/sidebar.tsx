@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Search, Plus, RotateCw, Rss, Bookmark } from "lucide-react";
+import { Search, RotateCw, Rss, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Group } from "@/types/reader";
 
@@ -114,14 +114,18 @@ export function Sidebar({
             {/* 添加订阅走独立的 /add 页，而不是 /market。
                 市场页是一张 896 个源的卡片墙，用户想订一个源得先滚过
                 几百张卡片；/add 上半屏直接粘链接、下半屏按分类各 10 个，
-                两个动作都在一屏内。 */}
+                两个动作都在一屏内。
+
+                这里用文字「添加」而不是只有一个小加号图标：14px 的灰
+                加号在侧栏右上角几乎看不见（用户反馈「没看到」）。红色
+                文字入口一眼就能找到，点击热区也比 24px 图标大得多。 */}
             <Link
               href="/add"
               title="添加订阅"
               aria-label="添加订阅"
-              className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-[#e8e8e8] dark:hover:bg-[#252525]"
+              className="-mr-1 shrink-0 rounded-md px-1.5 py-1 text-[13px] font-medium text-[#f5455c] transition-colors hover:bg-[#f5455c]/10 active:scale-95 dark:text-[#ff6b7f]"
             >
-              <Plus className="h-3.5 w-3.5 text-[#666] dark:text-[#aaa]" />
+              添加
             </Link>
           </div>
         )}

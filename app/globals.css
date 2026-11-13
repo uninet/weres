@@ -194,6 +194,21 @@
   -webkit-user-select: none;
 }
 
+/* Radix ScrollArea 的 Viewport 内部会被塞一条样式表规则，把第一个子元素
+   设成 `display: table; min-width: 100%`，本意是让表格布局去量滚动条宽度。
+   但 table 的宽度按「内容最小宽度」撑开：侧栏里有「Netlab Blog - Network Lab」
+   这类长标题，span 上的 truncate 又依赖父级有确定宽度 —— 父宽由内容决定、
+   子宽由父决定，循环下来内层撑到 493px，而 Viewport 是 overflow: hidden，
+   右侧直接被裁掉。钉在右端的「添加」按钮就落在可视区外（x=453 / 侧栏 255），
+   用户看不到也点不到。
+
+   改成 block 后宽度锁死在 Viewport 内，truncate 才能生效。
+   这条必须写在样式表里：radix 的规则选择的是 `> div`，在组件上加 className
+   盖不住它（试过 !block，无效）。 */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+}
+
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;
