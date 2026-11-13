@@ -1,3 +1,0 @@
-Bug ID,Severity,Title,Description,Steps to Reproduce,Expected Result,Actual Result,Environment,Status,Assigned To,Created Date,Fixed Date,Verified Date,Notes
-BUG-001,P1,用户登录失败,输入正确凭据后无法登录,"1. 访问登录页面<br>2. 输入邮箱和密码<br>3. 点击登录",成功登录并跳转到首页,显示"登录失败"错误提示,"Chrome 120, macOS",Open,Developer,2026-02-03,,,"需要检查API响应"
-BUG-002,P0,文章列表不显示,文章列表区域空白,"1. 登录系统<br>2. 访问阅读器页面<br>3. 等待加载",显示文章卡片列表,区域空白无内容,"Safari 17, iOS",Open,Developer,2026-02-03,,,"可能是API返回空数组"

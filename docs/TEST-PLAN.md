@@ -26,9 +26,9 @@
 
 ## 2. 环境准备
 
-```bash
-cd /Users/yelon/Documents/Projects/00-Active/web/werss3
+以下命令都在**仓库根目录**执行。
 
+```bash
 # 1) 必须有 JWT_SECRET 且长度 ≥32
 grep -q '^JWT_SECRET=.\{32,\}' .env || echo "JWT_SECRET=$(openssl rand -base64 32)" >> .env
 

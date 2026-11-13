@@ -184,6 +184,51 @@ node .next/standalone/server.js
 > 因此 `npm start`（即 `next start`）会提示不兼容，请用上面的
 > `node .next/standalone/server.js`。
 
+## 备份与恢复
+
+整个应用的状态就是一个 SQLite 文件（容器内 `/data/werss.db`，对应具名卷
+`werss-data`）。**备份它 = 备份了一切**，文章正文、订阅、收藏、已读记录都在里面。
+
+### 备份
+
+```bash
+# 在宿主机执行：生成一致性快照，再取出来
+docker exec werss sh -lc 'cd /app && npm run db:backup -- /data/werss-backup.db'
+docker cp werss:/data/werss-backup.db ./werss-backup-$(date +%F).db
+```
+
+`npm run db:backup` 内部用 `VACUUM INTO`，会写出一份整理过、事务一致的副本。
+不用 `docker cp` 直接拷正在使用的 `.db`：SQLite 在 WAL 模式下有独立的 `-wal` 文件，
+拷到写入中途的状态时，问题是恢复那一刻才发现的 —— 而那时旧库已经被覆盖了。
+
+（本地开发时同一个脚本也能用：`npm run db:backup` 默认写到 `DATABASE_URL`
+同目录的 `werss-backup-YYYY-MM-DD.db`。）
+
+### 恢复
+
+```bash
+docker compose down
+
+# 把备份写回卷里
+docker run --rm -v werss_werss-data:/data -v "$PWD:/backup" alpine \
+  sh -lc 'cp /backup/werss-2026-11-13.db /data/werss.db'
+
+# 关键一步：修属主。
+# 容器里的进程是 uid 1001（nextjs），卷被 root 写进去之后它就没有写权限了，
+# 表现是「网页能打开、一登录就 500」，而 /api/health 仍然回 200
+# （健康检查会写一次探针，所以它会正确报 readonly —— 但很多人不会去看）。
+docker run --rm -v werss_werss-data:/data alpine \
+  sh -lc 'chown -R 1001:65533 /data && chmod 644 /data/werss.db'
+
+docker compose up -d
+```
+
+如果恢复后 `/api/health` 返回 `{"status":"degraded","database":"readonly"}`，
+就是属主没改对，按上面那行 `chown` 重做一次即可。
+
+> 不想执行这几条命令的话，也可以退回到最朴素的做法：`docker cp` 出 `.db` 文件即可，
+> 恢复时 `docker cp` 回去并同样 `chown -R 1001:65533 /data`。
+
 ## 环境变量
 
 完整说明见 [`.env.example`](.env.example)，这里只列关键项。
@@ -234,6 +279,12 @@ SMTP_FROM="you@qq.com"
 | `npm run test:unit` | Vitest 单元测试（无需起服务） |
 | `npm run test:integration` | Vitest 集成测试（**需先起 dev server**） |
 | `npm run test:e2e` | Playwright 端到端测试（需先起服务） |
+| `npm run verify` | **发布前主验收**：`e2e-verify` + `ui-verify` 两套共 140 条 |
+| `npm run verify:e2e` | 接口验收 86 条（订阅、阅读器、快捷键、内容、鉴权、健壮性、账号自助…） |
+| `npm run verify:ui` | 浏览器验收 54 条（响应式、正文排版、悬浮工具栏、导航入口、添加订阅页…） |
+| `npm run test` | Playwright 全部 project（UI + 6 组契约） |
+| `npm run test:contract` | 接口契约测试 65 条（6 组，需先起服务） |
+| `npm run db:backup` | 备份数据库到 `DATABASE_URL` 同目录（`VACUUM INTO`，一致性快照） |
 | `npm run db:deploy` | 应用迁移（生产推荐，幂等） |
 | `npm run db:migrate` | 创建新迁移（开发用） |
 | `npm run db:seed` | 灌入演示数据（测试账号 + 3 个 RSS 源 + 示例文章） |
@@ -288,7 +339,7 @@ SMTP_FROM="you@qq.com"
 │   └── dev.db                 # 本地数据库（已 gitignore）
 ├── scripts/                   # 数据种子脚本（seed.ts / seed-presets.ts）
 ├── data/
-│   └── market-feeds.json      # RSS 市场目录（894 个源的 url/标题/分类）
+│   └── market-feeds.json      # RSS 市场目录（891 个源的 url/标题/分类）
 ├── types/                     # 共享类型
 ├── docs/
 │   └── TEST-PLAN.md           # 测试计划与全部验收用例
@@ -347,11 +398,21 @@ SMTP_FROM="you@qq.com"
   丢弃 `script`/`style`/`iframe`/`form`/`svg` 等，删除所有 `on*` 事件属性、
   危险协议（`javascript:`）与 `data-*`；外链统一 `rel="noopener noreferrer nofollow"`。
   入库前和出库时都会过一遍（历史数据可能已有脏内容）。
-- **鉴权**：所有用户态接口都在路由内校验登录状态，并按 `userId` 过滤数据，
-  文章详情还会校验「当前用户是否订阅了该源」，未订阅一律 404（避免用状态码差异枚举 id）。
+- **鉴权**：所有用户态接口都在路由内校验登录状态，并按 `userId` 过滤数据。
+  读文章详情、标记已读、收藏**都**会校验「当前用户是否订阅了该源」，未订阅一律 404
+  （不用 403：状态码差异本身就能被用来枚举 id 是否存在）。
+  收藏这条尤其要留意 —— 少了归属校验时，任何人拿到一个 articleId 就能收藏别人的文章，
+  再通过 `GET /api/favorites` 读到它的标题、链接、作者、摘要，收藏夹就成了越权读文章的旁路。
+- **令牌**：读 Cookie 也读 `Authorization: Bearer`，两者走同一个校验函数
+  （`getCurrentUserFromRequest`）。早期 `read`/`favorite` 两个路由只读 Cookie，
+  用 Bearer 调一律 401 —— 同一规则散在多处实现就会这样漂移。
 - **密钥**：无硬编码兜底值，示例值与短密钥会被显式拒绝。
 - **响应头**：`nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy`、
   `Permissions-Policy` 等，见 `next.config.mjs`。
+- **健康检查探写权限**：`/api/health` 除了 `SELECT 1` 还会删一次不存在的记录。
+  只读库上 `SELECT 1` 照样成功，于是容器 healthy 而所有写操作 500
+  （恢复备份时用 root `cp` 覆盖库文件就会踩到，属主变成 root）。
+  现在这种情况返回 503 + `{"database":"readonly"}` 并带上修复提示。
 - **图片**：关掉了 Next 的服务端图片优化（`images.unoptimized`）。
   原先允许任意 https 域，等于把服务器变成开放代理。
 - **出站请求（SSRF 防护）**：`lib/url-safety.ts` 会拒绝服务端去请求环回地址、
@@ -362,11 +423,16 @@ SMTP_FROM="you@qq.com"
   所有 RSS 抓取（订阅、验证、OPML 导入、同步）和全文抓取都经过这一层。
   内网自建 RSSHub 这类正当需求，用 `ALLOW_PRIVATE_FEED_URLS=true` 显式放开。
 
+  **重定向逐跳校验**：只查第一跳是不够的 —— 一个公网 URL 302 到
+  `http://169.254.169.254/...`，`fetch` 默认会跟过去，校验就白做了。
+  `fetchWithSafety()` 用 `redirect: "manual"` 自己跟跳转，**每一跳都重新校验**，
+  最多 5 跳；3xx 的响应体主动 `cancel()`，否则连接会悬着。
+
   已知局限：DNS 解析与实际连接之间存在时间窗，理论上存在 DNS rebinding 攻击。
   彻底封堵需要在 socket 层固定解析结果，代价是接管整个 HTTP 客户端，
   当前实现选择不引入这个复杂度。
 
-- **速率限制（两层）**。第一层按访客限流，负责公平；第二层是全局上限，
+- **速率限制（按访客 + 全局两层）**。第一层按访客限流，负责公平；第二层是全局上限，
   负责安全。之所以需要两层：按访客限流要读 `X-Forwarded-For`，而这个头
   是客户端自己填的，Next.js 会原样透传 —— 换个伪造 IP 就能重置计数。
   「验证 RSS 源」「忘记密码」「注册」这三个接口会真的抓外网 / 发邮件 /
@@ -401,11 +467,33 @@ npx prisma db seed
 - 站内通知在**同步时自动生成**（每个源每次同步一条「有 N 篇新文章」），但每日摘要邮件需要外部定时任务触发，见下面的「定时任务」一节。
 - Kindle 推送只保证「邮件成功交给 SMTP」；Amazon 侧的最终到达取决于发件域名信誉和白名单，服务端无从验证。
 - 契约测试（`tests/contract/`）需要先起服务，不在 CI 的默认检查里。
+- 依赖审计（`npm audit`）仍有告警，剩下的大多是 **构建/测试工具链** 里的传递依赖
+  （`vitest`/`tinypool`、`eslint-config-next`、`glob`、`postcss` 等），
+  生产运行时用不到。`next@14.2.35` 本身还挂着一批已公告的 CVE，
+  它们集中在 Server Actions、`middleware.ts`、`next/image` 三块 ——
+  本项目一处都没用（`grep -c '"use server"' app/ lib/ components/` 为 0，
+  没有 `middleware.ts`，没有 `next/image`），因此实际暴露面远小于清单长度。
+  升级到 Next 15 才能真正清零，但那是破坏性变更（React 19、`params`/`searchParams`
+  变成 Promise），没有在一次改动里一起做。
 - 全文抓取靠站点适配（`lib/rss-parser.ts` 里 36氪 / 少数派 / 虎嗅 / 极客公园 /
   爱范儿 / 品玩 / Solidot 各有选择器，其余走通用正文提取）。这些站的页面结构
   一改，对应适配就可能失灵，表现为「正文只有摘要那么短」。属预期内的维护成本。
 - 部分 RSS 的封面图指向防盗链或已删除的地址，前端加载失败时会直接不显示图片，
   列表项退化成纯文字（而不是留一个灰色空块）。
+
+## RSS 市场数据来源
+
+`data/market-feeds.json` 收录了 891 个公开可访问的中文 RSS 源（URL / 标题 / 一句话简介 / 分类），
+用来让新部署的实例开箱就有一个能逛的市场，而不是一个空列表。
+
+- **来源**：整理自 [QiReader](https://qireader.com) 的公开发现页与中文 RSS 社区长期公开的订阅列表，
+  这些地址本身是各站点主动对外提供的 feed（站点自己就希望被订阅）。
+- **只登记，不转载**：仓库里只存 URL 与元信息，不缓存、不分发任何正文内容。
+  正文始终由你自己的实例按需去源站抓取，版权归原作者与来源站点。
+- **已做的清理**：条目里原本夹带的第三方联系邮箱、个人微信号已全部移除；
+  也剔除了资源索引类（torrent / 磁力）条目 —— 它们不是内容源，收录在公开仓库里不合适。
+- **发现某个源失效或内容不当**：直接改这个 JSON 提 PR，或在你自己的实例里取消订阅即可。
+  市场是「建议清单」不是「白名单」，订阅行为始终由使用者自己发起。
 
 ## 定时任务（可选）
 
