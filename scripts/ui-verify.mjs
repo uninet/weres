@@ -859,15 +859,22 @@ async function main() {
     // 取阅读器列表第一篇，调收藏接口（幂等，已收藏再收藏不会出错）。
     await zp.goto(`${BASE}/favorites`, { waitUntil: "networkidle" });
     await zp.waitForTimeout(1000);
-    // 标题是 <h3 onClick>，不是包在 button 里 —— 用 button:has(h3) 会永远数到 0
-    const favCount = await zp.evaluate(() =>
-      document.querySelectorAll("h3.font-medium").length
+    // 两个坑都踩过：
+    //  1. 标题是 <h3 onClick>，不包在 button 里 —— button:has(h3) 永远数到 0
+    //  2. 空状态提示也是 <h3 className="text-lg font-medium">，
+    //     用 h3.font-medium 会把它选中，点了当然没反应（全新库上就是这么挂的）。
+    //     只有列表里的文章标题带 line-clamp-2 + cursor-pointer。
+    const TITLE_SEL = "h3.line-clamp-2";
+    const favCount = await zp.evaluate(
+      (sel) => document.querySelectorAll(sel).length,
+      TITLE_SEL
     );
     if (favCount === 0) {
       const seeded = await zp.evaluate(async () => {
         const r = await fetch("/api/articles?page=1&pageSize=1");
         const j = await r.json();
-        const id = j?.data?.items?.[0]?.id;
+        // 返回的是 data.articles，不是 data.items
+        const id = j?.data?.articles?.[0]?.id;
         if (!id) return null;
         const f = await fetch(`/api/articles/${id}/favorite`, {
           method: "POST",
@@ -881,7 +888,7 @@ async function main() {
         await zp.waitForTimeout(1200);
       }
     }
-    const favTitle = zp.locator("h3.font-medium").first();
+    const favTitle = zp.locator(TITLE_SEL).first();
     if ((await favTitle.count()) > 0) {
       // 不能断言 URL 里一直保留 ?articleId= —— 深链处理后阅读器会把地址栏
       // 换回 /reader（否则换下一篇时地址栏还是旧 id，刷新会跳回去）。

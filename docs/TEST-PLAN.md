@@ -425,7 +425,13 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 >    真正要守的是「点收藏标题，进来的是同一篇文章」，所以比 `h1` 而不是比 URL。
 > 3. **Z-04 的标题不是 `<button>`。** 它是 `<h3 onClick>`，用 `button:has(h3)`
 >    永远数到 0，会退化成「收藏夹为空，跳过」——跳过等于没测。
->    改成先取第一篇标题；收藏为空时先调收藏接口造一条数据再测。
+>    但换成 `h3.font-medium` 又踩第二个坑：**空状态提示「暂无收藏文章」
+>    也是 `<h3 className="text-lg font-medium">`**，选择器会命中它，
+>    点了自然没反应。只有列表里的文章标题带 `line-clamp-2 cursor-pointer`，
+>    所以选择器必须是 `h3.line-clamp-2`。
+>    另外造数据用的接口返回是 `data.articles` 不是 `data.items`
+>    （照抄了别的接口的形状，导致兜底逻辑静默失效——它在主实例上一直没触发，
+>    只有全新克隆的空库才暴露）。
 >
 > **验证手法**（每个断言都要证明它会失败）：把收藏页行为临时改回
 > `window.open(link)`，Z-04 报「`/favorites` · 我的收藏」；恢复后通过。
