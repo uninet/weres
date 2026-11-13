@@ -575,22 +575,33 @@ async function testContent() {
     );
     let maxLen = 0;
     let maxFeed = "";
+    // 真正要验的不是「库里恰好有一篇 3000 字长文」——那取决于今天先抓到
+    // 哪个源：全新建的实例只同步了几十个源，撞上一批短讯型站点（机核
+    // 1646 字、solidot 528 字）就会失败，而抓取机制完全正常。
+    // 有意义的判据是「正文显著长于 RSS 摘要」，那才说明回源抓了全文。
+    const expanded = [];
     long.forEach((r, i) => {
-      const len = String(r.body?.data?.content || "").length;
+      const content = String(r.body?.data?.content || "");
+      const summary = String(spread[i]?.description || "");
+      const len = content.length;
       if (len > maxLen) {
         maxLen = len;
         maxFeed = spread[i]?.feed?.title || "";
       }
+      // 摘要通常是 100–500 字；正文超过「摘要的 1.5 倍且 ≥800 字」
+      // 只可能来自回源抓取，不可能是 RSS 自带的内容。
+      if (len >= 800 && len > summary.length * 1.5) {
+        expanded.push({ len, summary: summary.length, feed: spread[i]?.feed?.title || "" });
+      }
     });
-    // 阈值 3000 字符：RSS 只给摘要的源，摘要通常在 100–500 字；
-    // 一旦真的回源抓了全文，长文普遍是 3000–50000 字。5000 那条线
-    // 会随「今天抓到的恰好是哪几个源」而闪断（实测在 4990 卡过一次），
-    // 属于抽样噪声而不是能力边界。
+    expanded.sort((a, b) => b.len - a.len);
     record(
       "D-01",
-      "全文抓取生效（有长正文）",
-      maxLen > 3000,
-      `最长 ${maxLen} 字符（${maxFeed}），抽样 ${spread.length} 篇 / ${perFeed.size} 个源`
+      "全文抓取生效（正文显著长于摘要）",
+      expanded.length > 0,
+      expanded.length
+        ? `${expanded.length}/${spread.length} 篇正文超过摘要，最长 ${expanded[0].len} 字符（${expanded[0].feed}，摘要 ${expanded[0].summary} 字）`
+        : `抽样 ${spread.length} 篇 / ${perFeed.size} 个源，没有一篇正文明显超过摘要（最长 ${maxLen} 字符）`
     );
 
     // D-06：存量短篇会被重抓补齐。
