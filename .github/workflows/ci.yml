@@ -53,3 +53,58 @@ jobs:
         env:
           DATABASE_URL: "file:./ci.db"
           JWT_SECRET: "ci-only-secret-at-least-32-characters-long"
+
+      # 接口验收 + 契约测试。
+      #
+      # 这两套以前只在本机跑：CI 里只有 tsc / lint / build / vitest，
+      # 于是「66 个接口用例全绿」这件事从来没有被自动化守过 ——
+      # 一次提交把 /api/sync 的租户过滤写掉，CI 依然全绿。
+      #
+      # 这里真的起服务、真的灌种子数据、真的发请求。
+      # Playwright 在 GitHub 的 ubuntu-latest 上自带 chromium
+      # （playwright.config.ts 探测不到系统 Chrome 时会回落到它）。
+      - name: Prepare database
+        run: |
+          npx prisma migrate deploy
+          npm run db:seed
+        env:
+          DATABASE_URL: "file:./ci.db"
+          JWT_SECRET: "ci-only-secret-at-least-32-characters-long"
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # 注意不能写 `npm run start`（= next start）：
+      # 项目用了 output: "standalone"，Next 会打印
+      # 「"next start" does not work with "output: standalone"」并回退到
+      # 非 standalone 模式 —— 那样 CI 测的就不是 Docker 里真正跑的东西。
+      # 直接把 standalone 产物就位再跑 server.js，与 Dockerfile 的 CMD 一致。
+      - name: Start server
+        run: |
+          # 用绝对路径，而且必须指向 prisma/ 目录下。
+          #
+          # Prisma 把 `file:./ci.db` 这类相对地址解析到 **schema 所在目录**，
+          # 也就是 prisma/ci.db（实测确认）。而 standalone 产物里没有
+          # prisma/schema.prisma，cwd 又变成了 .next/standalone —— 相对路径
+          # 会静默打开另一个空库，测试建的用户写进 A 库、服务端查 B 库，
+          # 报错却是「用户不存在」，看起来像鉴权坏了。
+          DB_URL="file:$(pwd)/prisma/ci.db"
+          cp -r public .next/standalone/ 2>/dev/null || true
+          cp -r .next/static .next/standalone/.next/ 2>/dev/null || true
+          cd .next/standalone
+          DATABASE_URL="$DB_URL" JWT_SECRET="ci-only-secret-at-least-32-characters-long" node server.js &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:3000/api/health
+
+      - name: API verification (verify:e2e)
+        run: npm run verify:e2e
+        env:
+          BASE_URL: "http://127.0.0.1:3000"
+
+      - name: Contract tests
+        run: npm run test:contract
+        env:
+          BASE_URL: "http://127.0.0.1:3000"

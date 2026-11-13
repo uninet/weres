@@ -6,6 +6,11 @@ const TEST_USER = {
   password: '123456'
 };
 
+// 页面里的 fetch 支持相对路径，但 `page.request.get()` 是 Node 侧发请求，
+// 必须给绝对地址（曾经写成 "/api/articles" 直接抛 `Invalid URL`）。
+// 与 verify 脚本统一读同一个环境变量，换端口起实例时不用改代码。
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:3000';
+
 test.describe('WeRSS Reader UI Tests', () => {
   // 每条用例先登录。
   //
@@ -422,6 +427,26 @@ test.describe('WeRSS Reader UI Tests', () => {
   // 现在的断言是端到端的因果链：点开一篇带未读圆点的文章 → 回列表 →
   // 同一篇文章的圆点必须消失。三步都要有数据，缺一步就是失败而不是跳过。
   test('TC-UI-018: 文章已读标记', async ({ page }) => {
+    // 夹具自己造，不赌「库里恰好还有未读」。
+    // 单跑必过、全量跑必挂的原因就在这里：前面的用例会一路点开文章，
+    // 把当前页的未读全变成已读，于是 findUnreadIndex() 返回 -1。
+    // 这里反向操作一次 —— 取列表第一篇，若已读就删掉它的已读记录。
+    //
+    // 注意用页面内 fetch 而不是 page.request.get：后者是 Node 侧发请求，
+    // 与浏览器上下文共用 cookie 存储但实测常常读不到登录态（返回 401 →
+    // data 为 undefined），报出来的错误却是「列表为空」，看起来像数据问题。
+    const listBody = await page.evaluate(async () => {
+      const res = await fetch('/api/articles?pageSize=5');
+      return res.ok ? await res.json() : { status: res.status };
+    });
+    const firstArticle = listBody?.data?.articles?.[0];
+    expect(firstArticle, '列表为空，无法制造未读夹具').toBeTruthy();
+    if (firstArticle.isRead) {
+      await page.evaluate(async (id) => {
+        await fetch(`/api/articles/${id}/read`, { method: 'DELETE' });
+      }, firstArticle.id);
+    }
+
     await page.goto('/reader');
     await page.waitForURL(/\/reader/, { timeout: 20000 });
     await page.locator(ARTICLE_CARD).first().waitFor({ timeout: 15000 });

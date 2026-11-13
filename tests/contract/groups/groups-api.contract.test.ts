@@ -10,7 +10,11 @@ import { validate } from 'jsonschema';
 import { extractTokenFromResponse } from '../shared/auth';
 import { registerAndLogin } from '../shared/user';
 
-const BASE_URL = 'http://localhost:3000/api';
+// 端口写死过一段时间，导致这套契约测试只能在 3000 端口跑：
+// 换 BASE_URL 起一个全新克隆（验证「别人 clone 就能跑」）时，
+// 测试还在打 3000 —— 那里要么没人监听，要么是另一个实例，
+// 报出来的失败和代码无关。与 verify 脚本统一读同一个环境变量。
+const BASE_URL = (process.env.BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '') + '/api';
 
 let authToken: string;
 let testGroupId: string;
