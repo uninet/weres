@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { parseRSSFeed, extractFavicon } from "@/lib/rss-parser";
 import { z } from "zod";
@@ -109,34 +110,38 @@ export async function POST(req: Request) {
     }
     const { user } = auth;
 
-    const body = await req.json();
-    const { url, groupId, isNotify } = subscribeSchema.parse(body);
+    const parsed = await readJsonBody<{ url?: string; groupId?: string; isNotify?: boolean }>(
+      req,
+      "请提供要订阅的 RSS 地址"
+    );
+    if (!parsed.ok) return parsed.response;
+    const { url, groupId, isNotify } = subscribeSchema.parse(parsed.data);
 
     // Parse RSS to get feed info
-    const parsed = await parseRSSFeed(url);
+    const rssParsed = await parseRSSFeed(url);
 
     // Create or update feed
     const feed = await prisma.feed.upsert({
       where: { url },
       update: {
-        title: parsed.title || url,
-        description: parsed.description || '',
-        icon: parsed.icon || extractFavicon(url),
+        title: rssParsed.title || url,
+        description: rssParsed.description || '',
+        icon: rssParsed.icon || extractFavicon(url),
         lastSyncAt: new Date(),
         syncStatus: "SUCCESS",
       },
       create: {
         url,
-        title: parsed.title || url,
-        description: parsed.description || '',
-        icon: parsed.icon || extractFavicon(url),
+        title: rssParsed.title || url,
+        description: rssParsed.description || '',
+        icon: rssParsed.icon || extractFavicon(url),
         lastSyncAt: new Date(),
         syncStatus: "SUCCESS",
       },
     });
 
     // Import articles
-    for (const item of parsed.items.slice(0, 20)) {
+    for (const item of rssParsed.items.slice(0, 20)) {
       if (!item.title || !item.link) continue;
 
       // guid 只在单个源内唯一（同源内可能被别的源用同样的值），

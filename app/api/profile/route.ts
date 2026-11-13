@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
@@ -111,15 +112,13 @@ export async function PATCH(req: Request) {
       );
     }
 
-    const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
-      return NextResponse.json(
-        { success: false, message: "请求内容无效" },
-        { status: 400 }
-      );
-    }
+    const parsedBody = await readJsonBody<Record<string, unknown>>(
+      req,
+      "请求内容无效"
+    );
+    if (!parsedBody.ok) return parsedBody.response;
 
-    const parsed = updateProfileSchema.parse(body);
+    const parsed = updateProfileSchema.parse(parsedBody.data);
 
     // 空字符串表示「清空这个字段」，对应数据库里的 null。
     // 不做这个转换的话，avatar 会被存成空串，

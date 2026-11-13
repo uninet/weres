@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { createToken } from "@/lib/auth";
+import { createToken, shouldUseSecureCookie } from "@/lib/auth";
 import {
   getClientIdentifier,
+  checkGlobalRateLimit,
   checkRateLimit,
   resetRateLimit,
   rateLimitConfigs,
@@ -24,23 +26,55 @@ const loginSchema = z.object({
 export async function POST(req: Request) {
   try {
     // 速率限制 - 防止暴力破解（使用邮箱作为标识）
-    const body = await req.json();
-    const identifier = body.email ? `login:${body.email.toLowerCase()}` : getClientIdentifier(req);
-    const rateLimit = checkRateLimit(identifier, rateLimitConfigs.strict);
+    //
+    // 先用 readJsonBody：这是登录接口，是暴露在公网上被扫的第一个点。
+    // 原来直接 `await req.json()`，畸形 JSON 会抛 SyntaxError 落进 catch
+    // 变成 500「服务器错误」—— 攻击者能靠这个把错误日志刷满，
+    // 而正常的客户端配置错了（少个引号）看到的也是 500 而不是「你的请求有问题」。
+    const parsed = await readJsonBody<{ email?: string; password?: string }>(
+      req,
+      "请提供邮箱和密码"
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
-    if (!rateLimit.success) {
+    // 三层限流，缺一层就有可被利用的形态：
+    //
+    //   1. 按「IP + 邮箱」计数（strict，5 次/15 分钟）
+    //      —— 挡同一个人对同一账号反复试。
+    //   2. 按邮箱计数（loginAccount，30 次/15 分钟）
+    //      —— 挡分布式撞库（换 IP 继续试同一个账号）。
+    //   3. 全实例（globalLogin，120 次/分钟）
+    //      —— 挡「换 IP 换邮箱」的无差别灌，每次尝试都要跑 bcrypt，
+    //         不封顶的话 CPU 会被打满。
+    //
+    // 为什么第 1 层必须带 IP：之前只有 `login:<email>` 一层，
+    // 那意味着攻击者用错误密码点 5 次就能把某个邮箱锁死 —— 他不知道
+    // 密码也能让主人登不进去。实测错误密码第 6 次 429，随后正确密码
+    // 也是 429。这是拿防爆破换了「锁定他人账号」的 DOS。
+    // 带上 IP 后，攻击者只能锁住自己那台机器对某账号的尝试。
+    const emailKey = body.email ? body.email.trim().toLowerCase() : "";
+
+    const perClient = checkRateLimit(
+      emailKey ? `login:${getClientIdentifier(req)}:${emailKey}` : `login:${getClientIdentifier(req)}`,
+      rateLimitConfigs.strict
+    );
+    const globalRate = checkGlobalRateLimit("login", rateLimitConfigs.globalLogin);
+
+    if (!perClient.success || !globalRate.success) {
+      const blocked = !perClient.success ? perClient : globalRate;
       return NextResponse.json(
         {
           success: false,
           message: "尝试次数过多，请稍后再试",
-          retryAfter: Math.ceil((rateLimit.resetTime - Date.now()) / 1000),
+          retryAfter: Math.ceil((blocked.resetTime - Date.now()) / 1000),
         },
         {
           status: 429,
           headers: {
-            "X-RateLimit-Limit": "5",
+            "X-RateLimit-Limit": String(rateLimitConfigs.strict.max),
             "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": rateLimit.resetTime.toString(),
+            "X-RateLimit-Reset": blocked.resetTime.toString(),
           },
         }
       );
@@ -62,6 +96,33 @@ export async function POST(req: Request) {
     const isValid = await compare(password, user.passwordHash);
 
     if (!isValid) {
+      // 账号级的配额只在「密码错了」时才计数。
+      //
+      // 它防的是分布式撞库：很多 IP 同时试同一个邮箱。这类攻击的特征
+      // 是大量失败，不是大量成功 —— 成功登录说明密码已经对了，再记一笔
+      // 只会惩罚合法用户。实测把它算进来的后果是：一套 UI 测试每条用例
+      // 登录一次，跑两轮就把演示账号锁在 30 次/15 分钟之外，
+      // 报错还是「尝试次数过多」，看起来像限流坏了。
+      if (emailKey) {
+        const perAccount = checkRateLimit(`login-account:${emailKey}`, rateLimitConfigs.loginAccount);
+        if (!perAccount.success) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "尝试次数过多，请稍后再试",
+              retryAfter: Math.ceil((perAccount.resetTime - Date.now()) / 1000),
+            },
+            {
+              status: 429,
+              headers: {
+                "X-RateLimit-Limit": String(rateLimitConfigs.loginAccount.max),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": perAccount.resetTime.toString(),
+              },
+            }
+          );
+        }
+      }
       return NextResponse.json(
         { success: false, message: "邮箱或密码错误" },
         { status: 401 }
@@ -72,7 +133,15 @@ export async function POST(req: Request) {
     //
     // 不加这一步的话，用户正常登录登出几轮就会被自己的成功登录锁住，
     // 15 分钟内再也登不进来。限流要挡的是猜密码，不是合法用户。
-    resetRateLimit(identifier);
+    //
+    // 只清 IP+邮箱这一层：账号级的配额是给分布式撞库留的，
+    // 成功登录一次就清零等于告诉攻击者「找到了正确入口可以重新开始计数」。
+    // 它被 30 次/15 分钟封顶，正常用户（一天登几次）永远碰不到。
+    resetRateLimit(
+      emailKey
+        ? `login:${getClientIdentifier(req)}:${emailKey}`
+        : `login:${getClientIdentifier(req)}`
+    );
 
     if (user.status === "SUSPENDED") {
       return NextResponse.json(
@@ -138,7 +207,7 @@ export async function POST(req: Request) {
       name: "token",
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7, // 7 天
       path: "/",

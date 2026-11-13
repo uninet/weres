@@ -23,7 +23,10 @@ export async function POST(req: Request) {
       return NextResponse.json(auth.error, { status: auth.status });
     }
 
-    const result = await syncAllFeeds();
+    // 只同步当前用户订阅的源，不是全库。
+    // 见 lib/rss-parser.ts 里 syncAllFeeds 的注释：Feed 是全局实体，
+    // 不过滤的话任何登录用户点一下就会触发全站抓取。
+    const result = await syncAllFeeds(auth.user.id);
 
     return NextResponse.json({
       success: result.success,

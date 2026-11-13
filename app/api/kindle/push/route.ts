@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import {
@@ -37,6 +38,10 @@ export async function POST(req: Request) {
 
     // 先看服务端有没有配 SMTP。没配就直接说清楚「缺什么」，
     // 而不是让用户点了以后收到一个看不懂的 500。
+    // 先解析请求体再判 SMTP：格式错应得 400，不是「服务端没配邮件」（503）
+    const parsedBody = await readJsonBody<{ articleId?: string }>(req, "请提供文章 id");
+    if (!parsedBody.ok) return parsedBody.response;
+
     if (!isKindlePushEnabled()) {
       return NextResponse.json(
         {
@@ -48,7 +53,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json().catch(() => null);
+    const body = parsedBody.data;
     const articleId =
       body && typeof body.articleId === "string" ? body.articleId.trim() : "";
 

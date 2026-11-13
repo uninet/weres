@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
@@ -92,8 +93,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json().catch(() => null);
-    const parsed = createTagSchema.parse(body);
+    const parsedBody = await readJsonBody<{ name?: string; color?: string }>(
+      req,
+      "请提供标签名称"
+    );
+    if (!parsedBody.ok) return parsedBody.response;
+    const parsed = createTagSchema.parse(parsedBody.data);
 
     // schema 里 @@unique([userId, name])，先查再建，避免撞唯一约束报 500
     const existing = await prisma.tag.findUnique({

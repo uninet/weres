@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { createToken } from "@/lib/auth";
+import { createToken, shouldUseSecureCookie } from "@/lib/auth";
 import {
   getClientIdentifier,
   checkRateLimit,
@@ -30,8 +31,27 @@ const registerSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    
+    // 畸形 JSON 必须报 400 而不是 500：这是公开接口，
+    // 500 既误导调用方（以为服务端故障），也让错误日志失去信号。
+    const parsed = await readJsonBody<{ email?: string; password?: string; nickname?: string }>(
+      req,
+      "请提供邮箱、密码和昵称"
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
+
+    // 先做参数校验，再扣限流额度。
+    //
+    // 顺序反了会有一个很隐蔽的后果：畸形请求（密码太短、昵称一个字、
+    // 邮箱格式错）本身不花任何成本 —— 不建行、不跑 bcrypt —— 却照样
+    // 占掉一次全局额度。实测连发 60 个 `nickname: "B"`（1 个字，必被
+    // zod 拒绝）全部返回 400，第 61 个正常请求拿到 429：
+    // 一个写错前端的客户端就能把整个实例的注册额度烧光。
+    //
+    // 反过来先校验也安全：被拒的请求根本走不到 bcrypt，
+    // 攻击者拿它刷不出成本，而真正要防的「批量建号」仍然被限住。
+    const { email, password, nickname } = registerSchema.parse(body);
+
     // 速率限制 - 防止恶意注册
     //
     // 单邮箱一层挡住「对同一个邮箱反复试」，
@@ -41,30 +61,37 @@ export async function POST(req: Request) {
       "register",
       rateLimitConfigs.globalRegister
     );
-    const identifier = body.email 
-      ? `register:${body.email.toLowerCase()}` 
-      : getClientIdentifier(req);
+    const identifier = `register:${email.toLowerCase()}`;
     const rateLimit = checkRateLimit(identifier, rateLimitConfigs.strict);
 
     if (!rateLimit.success || !globalRate.success) {
+      // retryAfter 必须取「真正拦住这一次的那一层」的 resetTime。
+      // 原来固定用 rateLimit.resetTime：当 429 是全局桶（1 分钟）触发时，
+      // 用户会被告知等 900 秒 —— 白等 14 分钟，而额度其实早恢复了。
+      const blocked = !rateLimit.success ? rateLimit : globalRate;
       return NextResponse.json(
         {
           success: false,
           message: "尝试次数过多，请稍后再试",
-          retryAfter: Math.ceil((rateLimit.resetTime - Date.now()) / 1000),
+          retryAfter: Math.ceil((blocked.resetTime - Date.now()) / 1000),
         },
         {
           status: 429,
           headers: {
-            "X-RateLimit-Limit": "5",
+            // 这三个头原来写的是「5 次 / rateLimit.resetTime」，
+            // 但拦下这次请求的可能是全局桶（60 次/分钟）。
+            // 头里报的和实际拦的不是同一个预算，客户端照着算只会越算越错。
+            "X-RateLimit-Limit": String(
+              !rateLimit.success
+                ? rateLimitConfigs.strict.max
+                : rateLimitConfigs.globalRegister.max
+            ),
             "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": rateLimit.resetTime.toString(),
+            "X-RateLimit-Reset": blocked.resetTime.toString(),
           },
         }
       );
     }
-
-    const { email, password, nickname } = registerSchema.parse(body);
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
@@ -117,7 +144,7 @@ export async function POST(req: Request) {
       name: "token",
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7, // 7 天
       path: "/",

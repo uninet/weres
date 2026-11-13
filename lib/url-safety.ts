@@ -168,3 +168,88 @@ export async function isSafeOutboundUrl(rawUrl: string): Promise<boolean> {
     return false;
   }
 }
+
+/** 跟随重定向时最多走几跳。真实 RSS / 文章页极少超过 2 跳。 */
+const MAX_REDIRECT_HOPS = 5;
+
+/**
+ * 带 SSRF 校验的 fetch：**每一跳**都重新校验目标地址。
+ *
+ * 为什么必须有这个函数：`assertSafeOutboundUrl(url)` 只能在发请求前查一次，
+ * 但它管不了服务器返回 302 之后去哪。实测（用项目自己的 rss-parser 版本）：
+ *
+ *   起一个公网可访问的 URL 返回 `302 Location: http://127.0.0.1:PORT/f.xml`
+ *   → 解析成功，拿到内网内容，title 变成内网页面里写的内容。
+ *
+ * 也就是说只校验首跳等于没有防护 —— 攻击者只需要一个跳转端点。
+ * 而 `fetch` 默认 `redirect: "follow"`，`rss-parser` 的 `parseURL` 自己也会跟
+ * （`maxRedirects` 默认 5），两边都绕过了单点校验。
+ *
+ * 因此所有出站请求统一走这里：`redirect: "manual"` 自己接管跳转，
+ * 每一跳的 Location 都先过 assertSafeOutboundUrl 再发。
+ * 这样 SSRF 防护只依赖一个函数，不会再出现「某处漏了」。
+ */
+export async function fetchWithSafety(
+  rawUrl: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  let current = rawUrl;
+
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    const url = await assertSafeOutboundUrl(current);
+
+    const response = await fetch(url.toString(), {
+      ...init,
+      // 关键：不交给 fetch 自动跟随，否则跳转目标不会被校验
+      redirect: "manual",
+    });
+
+    const isRedirect =
+      response.status >= 300 && response.status < 400 && response.headers.get("location");
+
+    if (!isRedirect) {
+      return response;
+    }
+
+    // 3xx 的 body 没有用处，且不消费会让连接悬空
+    await response.body?.cancel().catch(() => {});
+
+    const location = response.headers.get("location")!;
+    // Location 可以是相对地址，按当前跳解析
+    current = new URL(location, url).toString();
+  }
+
+  throw new UnsafeUrlError("重定向次数过多");
+}
+
+/**
+ * fetchWithSafety 的文本版本，顺带按 Content-Type 里的 charset 解码。
+ *
+ * 为什么不直接用 `response.text()`：它固定按 UTF-8 解码，
+ * 而不少老中文 feed 是 GBK / GB2312（`Content-Type: text/xml; charset=gb2312`），
+ * 强行 UTF-8 会得到整篇乱码。这里按声明解码，缺省才回落 UTF-8。
+ */
+export async function fetchTextWithSafety(
+  rawUrl: string,
+  init: RequestInit = {}
+): Promise<{ response: Response; text: string }> {
+  const response = await fetchWithSafety(rawUrl, init);
+
+  const contentType = response.headers.get("content-type") || "";
+  const charset = /charset=["']?([\w-]+)/i.exec(contentType)?.[1]?.toLowerCase();
+
+  const buffer = await response.arrayBuffer();
+
+  let encoding = "utf-8";
+  if (charset) {
+    const normalized = charset === "gb2312" || charset === "gbk" ? "gbk" : charset;
+    try {
+      new TextDecoder(normalized); // 不支持会抛
+      encoding = normalized;
+    } catch {
+      encoding = "utf-8";
+    }
+  }
+
+  return { response, text: new TextDecoder(encoding).decode(buffer) };
+}

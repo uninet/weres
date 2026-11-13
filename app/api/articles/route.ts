@@ -113,9 +113,19 @@ export async function GET(req: Request) {
 
     // 按类型过滤
     if (type === "unread") {
-      where.id = {
-        notIn: readIds.length > 0 ? readIds : [""],
-      };
+      // 用关系过滤，而不是 where.id = { notIn: readIds }。
+      //
+      // 后者在已读数达到 1000 时会直接报 P2029：
+      //   "Parameter limits for this database provider require this query to be
+      //    split into multiple queries, but the negation filters used prevent the
+      //    query from being split."
+      // SQLite 的绑定变量上限是 999，没读过的文章越多这个 id 列表就越长；
+      // 而否定过滤（NOT IN）无法被 Prisma 拆成多条查询规避，于是永久 500。
+      // 这是「未读」筛选 —— 阅读器默认视图之一，日常用久了一定会撞上。
+      //
+      // 关系过滤把「排除已读」交给 SQL 的 NOT EXISTS 子查询，不携带 id 列表，
+      // 因此与已读文章数无关。
+      where.readHistories = { none: { userId: user.id } };
     } else if (type === "favorite") {
       where.id = {
         in: favoriteIds.length > 0 ? favoriteIds : [""],

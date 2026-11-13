@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { hash } from "bcryptjs";
 import { z } from "zod";
@@ -30,8 +31,12 @@ const resetSchema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
-    const { token, password } = resetSchema.parse(body);
+    const parsedBody = await readJsonBody<{ token?: string; password?: string }>(
+      req,
+      "请提供重置令牌和新密码"
+    );
+    if (!parsedBody.ok) return parsedBody.response;
+    const { token, password } = resetSchema.parse(parsedBody.data);
 
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 

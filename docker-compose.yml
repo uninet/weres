@@ -33,6 +33,28 @@ services:
 
       # 首次启动且库为空时自动写入演示数据（测试账号 + 示例 RSS 源）
       SEED_ON_FIRST_BOOT: "${SEED_ON_FIRST_BOOT:-true}"
+
+      # ---------------------------------------------------------------------
+      # 以下都是可选功能，默认关闭/留空。
+      #
+      # 必须显式透传：容器内的进程只能看到这里列出的变量，宿主机 .env 里
+      # 写了也不会自己进去。之前这里少了这几项，结果是
+      #   - README 教的「定时摘要」接口返回 503（缺 SMTP_*）
+      #   - README 给的 crontab 示例返回 401（缺 CRON_SECRET）
+      #   - 反代后限流仍取伪造的 X-Forwarded-For 首段（缺 TRUST_PROXY）
+      #   - 内网 RSSHub 订阅不了（缺 ALLOW_PRIVATE_FEED_URLS）
+      # 功能都在，只是配置进不到进程里，而且表现成「功能坏了」。
+      # ---------------------------------------------------------------------
+      ALLOW_PRIVATE_FEED_URLS: "${ALLOW_PRIVATE_FEED_URLS:-false}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      CRON_SECRET: "${CRON_SECRET:-}"
+
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_SECURE: "${SMTP_SECURE:-false}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
     volumes:
       # SQLite 数据库落在宿主机的具名卷里，容器重建不丢数据
       - werss-data:/data

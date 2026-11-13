@@ -3,12 +3,18 @@ import * as cheerio from 'cheerio';
 import type { Feed } from '@prisma/client';
 import { prisma } from './prisma';
 import { sanitizeArticleHtml, stripLeadingDuplicateTitle } from './sanitize';
-import { assertSafeOutboundUrl } from './url-safety';
+import { assertSafeOutboundUrl, fetchTextWithSafety, fetchWithSafety } from './url-safety';
 import { notifyFeedUpdates } from './notify';
 
-const parser = new Parser({
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+/**
+ * 抓 RSS 时用的请求头。
+ *
+ * 抽成常量是为了让 `fetchWithSafety` 和 rss-parser 内部用同一套 ——
+ * 现在真正的网络请求由我们自己发（要逐跳校验重定向），
+ * rss-parser 只负责解析字符串。
+ */
+const RSS_BROWSER_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     // 绝对不要在这里声明 Accept-Encoding。
@@ -23,9 +29,13 @@ const parser = new Parser({
     // 都订阅失败，只有恰好没开压缩的源能成功 —— 表现为「有时能加、
     // 有时加不上」，很难定位。省略该头，node 默认不带 Accept-Encoding，
     // 服务器返回明文，解析正常。
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-  },
+  'Cache-Control': 'no-cache',
+};
+
+const parser = new Parser({
+  // rss-parser 只做字符串解析，真正的网络请求由 fetchWithSafety 发起
+  // （它逐跳校验重定向目标）。这里保留 headers 仅为 plainParser 复用。
+  headers: RSS_BROWSER_HEADERS,
   timeout: 20000,
   customFields: {
     item: [
@@ -170,13 +180,19 @@ export interface RSSFeed {
  * 表现为「订阅这个源必报 Invalid character in tag name」，
  * 而 curl 手动抓同一地址却是好的（curl 的 UA 不是浏览器 UA）。
  */
+/**
+ * 朴素请求头：不发浏览器特征，让站点走「给程序看的」那条分支。
+ * 部分站点（机核）按 UA 做内容协商，浏览器 UA 拿到的是 HTML。
+ */
+const PLAIN_HEADERS: Record<string, string> = {
+  // 刻意用最朴素的 UA：不发 Accept、不发 Accept-Language，
+  // 让站点走「给程序看的」那条分支。
+  'User-Agent': 'WeRSS/1.0 (+https://github.com/uninet)',
+  'Accept': 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8',
+};
+
 const plainParser = new Parser({
-  headers: {
-    // 刻意用最朴素的 UA：不发 Accept、不发 Accept-Language，
-    // 让站点走「给程序看的」那条分支。
-    'User-Agent': 'WeRSS/1.0 (+https://github.com/uninet)',
-    'Accept': 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8',
-  },
+  headers: PLAIN_HEADERS,
   timeout: 20000,
   customFields: {
     item: [
@@ -215,19 +231,32 @@ export async function parseRSS(url: string): Promise<RSSFeed> {
   // 这里是所有 RSS 抓取的总入口（验证订阅源、新增订阅、OPML 导入、
   // 定时同步都走它），所以 SSRF 防护放在这一层最彻底。
   //
-  // 不过滤的话，任何访客都能让服务端去请求 169.254.169.254（云元数据，
-  // 可换到临时凭证）或 127.0.0.1:3000，服务端在内网里，请求会带着内网
-  // 权限出去。
-  await assertSafeOutboundUrl(url);
+  // 不用 parser.parseURL()：它内部自己跟重定向，只校验首跳等于没校验 ——
+  // 一个公网 URL 返回 302 到 169.254.169.254，就能让服务端去读云元数据
+  // （实测可拿到内网内容）。改为「自己取正文 + parseString」，
+  // 这样每一次出站都经过 fetchWithSafety 的逐跳校验。
+  const { text, response } = await fetchTextWithSafety(url, {
+    headers: RSS_BROWSER_HEADERS,
+    // @ts-ignore rss-parser 的 timeout 选项对 fetch 无效，用 AbortSignal 更可靠
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
 
   let feed;
   try {
-    feed = await parser.parseURL(url);
+    feed = await parser.parseString(text);
   } catch (firstError) {
     // 第一次失败不一定代表地址有问题：可能是站点对浏览器 UA 返回了 HTML。
     // 换朴素 UA 再试；仍然失败才把原始错误抛出去（保留第一次的错误更贴近直觉）。
     try {
-      feed = await plainParser.parseURL(url);
+      const retry = await fetchTextWithSafety(url, {
+        headers: PLAIN_HEADERS,
+        // @ts-ignore 同上
+        signal: AbortSignal.timeout(20_000),
+      });
+      feed = await plainParser.parseString(retry.text);
     } catch {
       console.error(`Failed to parse RSS: ${url}`, firstError);
       throw firstError;
@@ -415,7 +444,7 @@ function cleanHtmlContent($: cheerio.CheerioAPI, content: string): string {
 async function fetch36KrContent(url: string): Promise<string | null> {
   try {
     // 36 氪需要特殊的请求头
-    const response = await fetch(url, {
+    const response = await fetchWithSafety(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -571,7 +600,7 @@ async function fetch36KrContent(url: string): Promise<string | null> {
  */
 async function fetchHuxiuContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -614,7 +643,7 @@ async function fetchHuxiuContent(url: string): Promise<string | null> {
  */
 async function fetchSspaiContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -676,7 +705,7 @@ async function fetchSspaiContent(url: string): Promise<string | null> {
  */
 async function fetchGeekparkContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -717,7 +746,7 @@ async function fetchGeekparkContent(url: string): Promise<string | null> {
  */
 async function fetchIfanrContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -758,7 +787,7 @@ async function fetchIfanrContent(url: string): Promise<string | null> {
  */
 async function fetchPingwestContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -798,7 +827,7 @@ async function fetchPingwestContent(url: string): Promise<string | null> {
  */
 async function fetchSolidotContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -868,7 +897,7 @@ function looksLikeBlockPage(html: string): boolean {
 
 async function fetchGenericContent(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, getFetchConfig());
+    const response = await fetchWithSafety(url, getFetchConfig());
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -1158,12 +1187,29 @@ export async function syncFeed(feedId: string): Promise<FeedSyncResult> {
 /**
  * 同步所有活跃的 RSS 源（并行处理优化版）
  */
-export async function syncAllFeeds(): Promise<{ success: boolean; results: BatchSyncResult[] }> {
+/**
+ * 同步若干源。
+ *
+ * `userId` 决定同步范围：
+ *   - 传了 userId：只同步这个用户订阅的源（UI 触发同步走这条）。
+ *   - 不传：同步全部启用的源（只给 scripts/seed-presets.ts 这类运维脚本用）。
+ *
+ * 为什么必须区分：Feed 是全局实体（多个用户订阅同一个源时文章是共享的），
+ * 所以早期实现直接从 feed.findMany() 取全表。结果是任何登录用户点一次
+ * 「刷新全部」，服务端就会去抓库里所有源 —— 演示实例上是 896 个源，
+ * 一次调用要跑几分钟，且任何人都能反复触发。
+ * 普通用户打开应用时想刷新的，本来就只是自己订阅的那几十个。
+ */
+export async function syncAllFeeds(userId?: string): Promise<{ success: boolean; results: BatchSyncResult[] }> {
   try {
     const feeds = await prisma.feed.findMany({
       where: {
         isActive: true,
         syncStatus: { not: 'SYNCING' },
+        // 传 userId 时收敛到「我订阅的」，未传则维持全量（运维脚本）
+        ...(userId
+          ? { subscriptions: { some: { userId } } }
+          : {}),
       },
     });
 

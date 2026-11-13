@@ -99,6 +99,44 @@ export interface JWTPayload {
 /**
  * 签发 JWT Token
  */
+/**
+ * 登录 Cookie 是否要带 Secure 属性。
+ *
+ * 原实现是 `process.env.NODE_ENV === "production"`，这在自托管场景下是一个
+ * **静默失效**的坑：
+ *
+ *   从 `http://192.168.1.10:3000` 登录（局域网/内网自托管最常见的方式），
+ *   NODE_ENV 是 production → 设置 `Secure` → 浏览器拒绝在明文 HTTP 上保存
+ *   这个 Cookie → 登录接口明明返回 200，但下一个请求就是未登录态，
+ *   而且没有任何报错提示。
+ *
+ *   localhost 不受影响（浏览器对 localhost 放宽了 Secure 限制），
+ *   所以在开发机上永远测不出来。
+ *
+ * 正确判据是「这个站点实际通过什么协议访问」，而不是「是否生产构建」。
+ * 优先读 NEXTAUTH_URL 的协议（部署者已经填了真实对外地址），
+ * 其次看反向代理传来的 x-forwarded-proto。
+ */
+export function shouldUseSecureCookie(req?: Request): boolean {
+  const configured = process.env.NEXTAUTH_URL?.trim();
+  if (configured) {
+    try {
+      return new URL(configured).protocol === "https:";
+    } catch {
+      // 配错了就当没配，往下走协议探测
+    }
+  }
+
+  const forwardedProto = req?.headers.get("x-forwarded-proto");
+  if (forwardedProto) {
+    return forwardedProto.split(",")[0].trim() === "https";
+  }
+
+  // 都没配：按「生产环境下假定是 HTTPS」这个保守默认。
+  // 想在内网明文部署，把 NEXTAUTH_URL 显式写成 http:// 即可。
+  return process.env.NODE_ENV === "production";
+}
+
 export async function createToken(user: {
   id: string;
   email: string;

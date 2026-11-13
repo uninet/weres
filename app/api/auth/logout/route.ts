@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { shouldUseSecureCookie } from "@/lib/auth";
 
 // 登出接口不读数据库，但会写 Cookie，必须实时执行
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
  * 同时用 POST 而不是 GET：GET 形式的登出可以被任意第三方页面
  * 通过 <img src="/api/auth/logout"> 触发，属于 CSRF 登出。
  */
-export async function POST() {
+export async function POST(req: Request) {
   const response = NextResponse.json({
     success: true,
     message: "已退出登录",
@@ -29,7 +30,7 @@ export async function POST() {
     name: "token",
     value: "",
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(req),
     sameSite: "lax",
     maxAge: 0,
     expires: new Date(0),

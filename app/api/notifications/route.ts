@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
@@ -85,18 +86,14 @@ export async function PATCH(req: Request) {
     }
     const { user } = auth;
 
-    // 空 body 会让 req.json() 抛 SyntaxError，落到下面的 catch 变成 500 ——
-    // 但这是调用方少传了参数，属于 400。改成自己兜住。
-    let body: { ids?: string[]; markAll?: boolean } = {};
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json(
-        { error: "请提供要标记的通知 ID，或设置 markAll" },
-        { status: 400 }
-      );
-    }
-    const { ids, markAll } = body || {};
+    // 统一走 readJsonBody：畸形 JSON 与空 body 都返 400 并给出可执行提示。
+    // 这里刻意允许空对象（{ }）——「标记全部」的调用方可能什么都不传。
+    const parsedBody = await readJsonBody<{ ids?: string[]; markAll?: boolean }>(
+      req,
+      "请提供要标记的通知 ID，或设置 markAll"
+    );
+    if (!parsedBody.ok) return parsedBody.response;
+    const { ids, markAll } = parsedBody.data || {};
 
     if (markAll) {
       // 标记所有通知为已读

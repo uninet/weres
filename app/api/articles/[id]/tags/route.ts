@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
@@ -73,8 +74,9 @@ export async function POST(
       );
     }
 
-    const body = await req.json().catch(() => null);
-    const { tagId } = attachSchema.parse(body);
+    const parsedBody = await readJsonBody<{ tagId?: string }>(req, "请提供要关联的标签 ID");
+    if (!parsedBody.ok) return parsedBody.response;
+    const { tagId } = attachSchema.parse(parsedBody.data);
 
     // 两件事都必须校验：
     //   1. 标签属于当前用户（否则可以往自己文章上贴别人的标签）

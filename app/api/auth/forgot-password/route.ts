@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readJsonBody } from "@/lib/request";
 import { prisma } from "@/lib/prisma";
 import { getSmtpConfig, getTransporter } from "@/lib/kindle";
 import { z } from "zod";
@@ -47,6 +48,14 @@ export async function POST(req: Request) {
     // 它没有任何可被滥用的成本，却要占掉「15 分钟 5 次」的发信额度 ——
     // 结果是用户点几次之后看到的是「请求过于频繁」，而不是真正的原因
     // 「服务端没配邮件通道」，照着前者去等 15 分钟也永远不会好。
+    // 先校验请求形状，再判「有没有邮件通道」。
+    // 顺序很重要：解析 body 是零成本的本地操作，不消耗发信额度；
+    // 而畸形 JSON 应该得到「你的请求不对」（400），不是「服务端没配邮件」（503）——
+    // 后者会把调用方引向完全错误的方向。
+    const parsedBody = await readJsonBody<{ email?: string }>(req, "请提供注册邮箱");
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.data;
+
     const smtp = getSmtpConfig();
     if (!smtp) {
       return NextResponse.json(
@@ -72,7 +81,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json().catch(() => null);
     const { email } = requestSchema.parse(body);
 
     const user = await prisma.user.findUnique({
