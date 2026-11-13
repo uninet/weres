@@ -2,8 +2,29 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { parseRSS } from "@/lib/rss-parser";
+import {
+  checkGlobalRateLimit,
+  checkRateLimit,
+  getClientIdentifier,
+  rateLimitConfigs,
+} from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * 单个 OPML 文件最多导入多少个源。
+ *
+ * 没有上限时这个接口是整站最便宜的放大器：请求体不限长、outline 数量不限、
+ * 每个未存在的源还要外呼一次 parseRSS。实测一次请求塞 600 条 outline
+ * 全部成功入库 —— 一个人一条 curl 就能把全站 feeds 从 897 撑到 3197，
+ * 而这些源之后每次「同步全部」都要被抓一遍。
+ * 1000 条远超正常用户的订阅量（重度用户通常 100–300），
+ * 超出的部分明确报错告诉用户改成分批导入，而不是静默截断。
+ */
+const MAX_IMPORT_ENTRIES = 1000;
+
+/** 请求体上限：1000 条 outline 的 OPML 大约 100KB，留 2 倍余量。 */
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 /**
  * POST /api/opml/import - 从 OPML 批量导入订阅
@@ -35,7 +56,28 @@ export async function POST(req: Request) {
       );
     }
 
+    // 读 body 之前先过一道全局桶。
+    //
+    // 这一层挡的不是「谁在滥用」，而是「请求体本身有多大」：
+    // req.text() 会把整个 body 读进内存，2MB 的上限是在读完之后才检查的，
+    // 所以在那之前必须有个不依赖客户端输入的节流，否则一个循环发
+    // 100MB body 的脚本就能把进程内存打满。全局桶的 key 不由请求方决定，
+    // 伪造 IP 绕不过去。
+    const ingress = checkGlobalRateLimit("opml-import", rateLimitConfigs.globalLogin);
+    if (!ingress.success) {
+      return NextResponse.json(
+        { success: false, message: "导入过于频繁，请稍后再试" },
+        { status: 429 }
+      );
+    }
+
     const text = await req.text();
+    if (text.length > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { success: false, message: "OPML 文件过大（上限 2MB）" },
+        { status: 413 }
+      );
+    }
     if (!text || !text.includes("<outline")) {
       return NextResponse.json(
         { success: false, message: "这不是有效的 OPML 文件" },
@@ -70,6 +112,40 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { success: false, message: "这个 OPML 里没有找到任何订阅源" },
         { status: 400 }
+      );
+    }
+
+    if (unique.length > MAX_IMPORT_ENTRIES) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `一次最多导入 ${MAX_IMPORT_ENTRIES} 个订阅源，当前有 ${unique.length} 个，请分批导入`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 限流放在所有结构校验之后。
+    //
+    // 这个接口会外呼（每个新源一次 parseRSS），不限流就是免费抓取代理 ——
+    // 但限流不该拦在「文件太大」「条数超上限」这类判断前面：
+    //   · 那些拒绝是零成本的（不查库、不外呼、不建行），
+    //     先拦它们既不影响防滥用，也不占用户的额度；
+    //   · 反过来先扣额度的话，一个把 OPML 导出成 1500 条的用户，
+    //     连试几轮都只会看到「导入过于频繁」，永远看不到
+    //     「一次最多 1000 条」这句真正有用的提示。
+    // 实测就是这个后果：F-02（导入自己的导出文件）和 W-08（1200 条必须被拒）
+    // 连跑第二轮时都拿 429，看起来像产品坏了，实际只是顺序问题。
+    const limit = checkRateLimit(`opml-import:${getClientIdentifier(req)}`, rateLimitConfigs.strict);
+    if (!limit.success) {
+      return NextResponse.json(
+        { success: false, message: "导入过于频繁，请稍后再试" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil((limit.resetTime - Date.now()) / 1000)),
+          },
+        }
       );
     }
 

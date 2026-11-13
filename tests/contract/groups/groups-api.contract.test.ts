@@ -8,6 +8,7 @@ import groupSchema from '../../schemas/group.schema.json';
 import feedSchema from '../../schemas/feed.schema.json';
 import { validate } from 'jsonschema';
 import { extractTokenFromResponse } from '../shared/auth';
+import { registerAndLogin } from '../shared/user';
 
 const BASE_URL = 'http://localhost:3000/api';
 
@@ -16,28 +17,16 @@ let testGroupId: string;
 
 test.beforeAll(async ({ request }) => {
   // Setup: Register and login
-  const registerData = {
-    email: `group-test-${Date.now()}@werss.com`,
-    password: 'Test@123456',
-    nickname: 'GroupContractTest'
-  };
-
-  await request.post(`${BASE_URL}/auth/register`, {
-    data: registerData,
-    headers: { 'Content-Type': 'application/json' }
+  // 注册与登录统一走 tests/contract/shared/user.ts。
+  // 每个文件自己写一遍且不检查注册状态码时，连跑第二轮会撞上
+  // 注册全局限流（60 次/分钟）→ login 401 → 报错却是
+  // 「Set-Cookie 里没有 token」，看起来像鉴权坏了。
+  // helper 遇到 429 会按 retryAfter 等一下再重试。
+  const user = await registerAndLogin(request, {
+    prefix: 'group',
+    nickname: 'GroupTest',
   });
-
-  const loginResponse = await request.post(`${BASE_URL}/auth/login`, {
-    data: {
-      email: registerData.email,
-      password: registerData.password
-    },
-    headers: { 'Content-Type': 'application/json' }
-  });
-
-  const loginBody = await loginResponse.json();
-  // 令牌在 HttpOnly Cookie 里，不在响应体（见 tests/contract/shared/auth.ts）
-  authToken = extractTokenFromResponse(loginResponse);
+  authToken = user.token;
 });
 
 /**
@@ -364,27 +353,40 @@ test('TC-ACT-040: Group Schema Validation - With Feeds', async ({ request }) => 
  * TC-ACT-041: Get Groups - Empty List
  * Priority: P2
  */
-test('TC-ACT-041: Get Groups - Empty List', async ({ request }) => {
-  // This test assumes a fresh account with no groups
-  // If there are groups, we'll just validate the structure
-
-  // Act
-  const response = await request.get(`${BASE_URL}/groups`, {
-    headers: {
-      'Authorization': `Bearer ${authToken}`
-    }
+test('TC-ACT-041: Get Groups - Fresh Account Starts Empty', async ({ request }) => {
+  // 这条原名「Empty List」，并注释「This test assumes a fresh account with
+  // no groups」—— 但 it 跑在同一个 beforeAll 账号上，前面的用例已经建了
+  // 好几个分组，所以它永远拿不到空列表，只能退化成 `Array.isArray(groups)`。
+  // 而 Array.isArray 在「接口返回 500 包装成 []」时也是真的。
+  //
+  // 改成一个独立的新账号：只有这样"新用户注册后分组列表为空"才是可断言的，
+  // 也才守得住「注册不该自动塞垃圾分组」这条。
+  const fresh = await registerAndLogin(request, {
+    prefix: 'group-empty',
+    nickname: 'EmptyGroupUser',
   });
 
-  // Assert
+  const response = await request.get(`${BASE_URL}/groups`, {
+    headers: { Authorization: `Bearer ${fresh.token}` },
+  });
   expect(response.status()).toBe(200);
 
   const body = await response.json();
-  const groups = body.data;
+  expect(body.success, '响应必须带 success 标记').toBe(true);
+  expect(Array.isArray(body.data)).toBe(true);
+  expect(body.data.length, '新账号不应自带任何分组').toBe(0);
 
-  // Should return array (possibly empty)
-  expect(Array.isArray(groups)).toBe(true);
+  // 再核对一次：这个账号确实能建分组（空是因为新，不是因为接口坏了）
+  const created = await request.post(`${BASE_URL}/groups`, {
+    data: { name: `First Group ${Date.now()}` },
+    headers: {
+      Authorization: `Bearer ${fresh.token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  expect(created.status(), '新账号应当能建第一个分组').toBe(200);
 
-  console.log(`✅ TC-ACT-041 PASSED: Groups list structure validated (${groups.length} groups)`);
+  console.log('✅ TC-ACT-041 PASSED: 新账号分组列表为空，且可正常创建');
 });
 
 /**

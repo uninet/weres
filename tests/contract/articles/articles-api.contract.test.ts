@@ -9,6 +9,7 @@ import feedSchema from '../../schemas/feed.schema.json';
 import articleDetailSchema from '../../schemas/article-detail.schema.json';
 import { validate } from 'jsonschema';
 import { extractTokenFromResponse } from '../shared/auth';
+import { registerAndLogin } from '../shared/user';
 
 const BASE_URL = 'http://localhost:3000/api';
 
@@ -18,27 +19,16 @@ let favoriteArticleId: string | undefined;
 
 test.beforeAll(async ({ request }) => {
   // Setup: Register and login to get auth token
-  const registerData = {
-    email: `article-test-${Date.now()}@werss.com`,
-    password: 'Test@123456',
-    nickname: 'ArticleContractTest'
-  };
-
-  await request.post(`${BASE_URL}/auth/register`, {
-    data: registerData,
-    headers: { 'Content-Type': 'application/json' }
+  // 注册与登录统一走 tests/contract/shared/user.ts。
+  // 每个文件自己写一遍且不检查注册状态码时，连跑第二轮会撞上
+  // 注册全局限流（60 次/分钟）→ login 401 → 报错却是
+  // 「Set-Cookie 里没有 token」，看起来像鉴权坏了。
+  // helper 遇到 429 会按 retryAfter 等一下再重试。
+  const user = await registerAndLogin(request, {
+    prefix: 'article',
+    nickname: 'ArticleTest',
   });
-
-  const loginResponse = await request.post(`${BASE_URL}/auth/login`, {
-    data: {
-      email: registerData.email,
-      password: registerData.password
-    },
-    headers: { 'Content-Type': 'application/json' }
-  });
-
-  // 令牌在 HttpOnly Cookie 里，不在响应体（见 tests/contract/shared/auth.ts）
-  authToken = extractTokenFromResponse(loginResponse);
+  authToken = user.token;
 
   // 新账号没有任何订阅，文章列表恒为空 —— 那样每一条断言都在空数组上空转，
   // 通过也说明不了任何事（这类「永远绿」的用例比没有用例更危险）。
@@ -235,7 +225,27 @@ test('TC-ACT-013: Get Articles List - Search Query', async ({ request }) => {
   // Should return array of articles (possibly empty)
   expect(Array.isArray(data.articles)).toBe(true);
 
-  console.log(`✅ TC-ACT-013 PASSED: Search parameter accepted (found ${data.articles.length} results)`);
+  // 只断言 Array.isArray 等于什么都没验 —— 搜索参数被后端整个忽略时
+  // 照样返回一个数组。这里补两条真判据：
+  //   ① 分页元数据必须存在（说明走的是正常列表路径，不是错误兜底）；
+  //   ② 若有结果，每条都必须真的包含关键字（不区分大小写）。
+  // 关键字取 'a' 是因为它几乎必然命中任意中文/英文语料，
+  // 而不会像 'test' 那样在中文库里恒零 —— 恒零时下面的 filter 是空集，
+  // 断言会退化成"空集里每条都包含关键字"（永远真）。
+  expect(data.pagination, '列表响应必须带分页元数据').toBeTruthy();
+  const keyword = 'a';
+  const mismatched = data.articles.filter(
+    (a: any) =>
+      !`${a.title || ''} ${a.description || ''}`.toLowerCase().includes(keyword)
+  );
+  expect(
+    mismatched.length,
+    `搜索 "${keyword}" 返回了 ${mismatched.length} 条不含关键字的文章`
+  ).toBe(0);
+
+  console.log(
+    `✅ TC-ACT-013 PASSED: 搜索返回 ${data.articles.length} 条，全部命中关键字`
+  );
 });
 
 /**
@@ -243,8 +253,12 @@ test('TC-ACT-013: Get Articles List - Search Query', async ({ request }) => {
  * Priority: P1
  */
 test('TC-ACT-014: Get Articles List - Invalid Pagination Parameters', async ({ request }) => {
-  // Act - Request with invalid limit (too large)
-  const response = await request.get(`${BASE_URL}/articles?limit=1000`, {
+  // Act - Request with oversized pageSize
+  //
+  // 原来写的是 ?limit=1000 —— 而后端只认 pageSize，limit 从来没被读取过，
+  // 于是请求实际返回默认 20 条，断言 data.articles.length <= 100 恒真。
+  // 换成真实的参数名之后，这条才是真的在守「服务端会夹紧上界」。
+  const response = await request.get(`${BASE_URL}/articles?pageSize=1000`, {
     headers: {
       'Authorization': `Bearer ${authToken}`
     }
@@ -269,7 +283,7 @@ test('TC-ACT-014: Get Articles List - Invalid Pagination Parameters', async ({ r
  */
 test('TC-ACT-015: Get Single Article - Valid ID', async ({ request }) => {
   // Arrange - First get an article ID from list
-  const listResponse = await request.get(`${BASE_URL}/articles?limit=1`, {
+  const listResponse = await request.get(`${BASE_URL}/articles?pageSize=1`, {
     headers: {
       'Authorization': `Bearer ${authToken}`
     }

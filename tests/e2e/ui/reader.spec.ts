@@ -235,16 +235,50 @@ test.describe('WeRSS Reader UI Tests', () => {
       .first()
       .textContent({ timeout: 3000 })
       .catch(() => null);
-    const keyword = (firstTitle || 'a').trim().slice(0, 2) || 'a';
+    // 取 6 个字而不是 2 个字：两个中文字命中面太广，几乎等于不过滤，
+    // 那样第 ③ 层判据就会失去意义（收窄幅度接近 0）。
+    const keyword = (firstTitle || 'a').trim().slice(0, 6) || 'a';
 
     await searchInput.fill(keyword);
-    await page.waitForTimeout(1200);
-    
-    // 验证搜索结果（如果有文章）
-    const articleCards = page.locator(ARTICLE_CARD);
-    const cardCount = await articleCards.count();
-    
-    console.log(`✅ TC-UI-006 PASSED: 搜索「${keyword}」返回 ${cardCount} 篇`);
+    await page.waitForTimeout(1500);
+
+    // 原来这里只有一条 console.log —— 搜出 0 篇也照样绿。
+    //
+    // 判据分三层，缺一层就会被"假搜索"骗过：
+    //   ① UI 必须真的过滤出结果（>0）；
+    //   ② UI 的结果数 == 接口用同一关键字返回的数（UI 侧 pageSize=50）
+    //      —— 这层守的是"搜索框的输入真的进了请求"。后端整个忽略 search
+    //      参数时 ① 仍然成立；
+    //   ③ 带关键字的结果数必须真的少于不带关键字时的总数 —— 这层守的是
+    //      "过滤真的在收窄"。
+    //
+    // 为什么不在前端逐条比对标题/摘要：接口返回的 description 本身是
+    // 截断过的（实测搜 "Ho" 有 4 篇的命中位置在截断点之后），
+    // 逐条比对会把正确的结果判成错。
+    const origin = new URL(page.url()).origin;
+    const cards = page.locator(ARTICLE_CARD);
+    const cardCount = await cards.count();
+    expect(cardCount, `搜索「${keyword}」应当有结果`).toBeGreaterThan(0);
+
+    const searchRes = await page.request.get(
+      `${origin}/api/articles?pageSize=50&search=${encodeURIComponent(keyword)}`
+    );
+    const apiCount = ((await searchRes.json())?.data?.articles || []).length;
+    expect(
+      cardCount,
+      `UI 显示 ${cardCount} 篇，接口返回 ${apiCount} 篇 —— 搜索词没有真的进请求（UI 侧 pageSize=50）`
+    ).toBe(apiCount);
+
+    const allRes = await page.request.get(`${origin}/api/articles?pageSize=50`);
+    const allCount = ((await allRes.json())?.data?.articles || []).length;
+    expect(
+      cardCount,
+      `搜索「${keyword}」返回 ${cardCount} 篇，与不过滤时的 ${allCount} 篇相同 —— 过滤没生效`
+    ).toBeLessThan(allCount);
+
+    console.log(
+      `✅ TC-UI-006 PASSED: 搜索「${keyword}」${cardCount} 篇（不过滤时 ${allCount} 篇），UI 与接口一致`
+    );
   });
 
   // 文章卡片的真实选择器。
@@ -379,33 +413,59 @@ test.describe('WeRSS Reader UI Tests', () => {
   });
 
   // TC-UI-018: 文章已读标记
+  //
+  // 这条用例曾经是 0 断言的：三个分支全是 console.log，其中一个还是
+  // 「无未读文章」就 SKIPPED —— 而选择器 `:has(.bg-purple-500.rounded-full)`
+  // 对着的是早已不存在的紫色圆点（真实类名是 `bg-[#007AFF]`），
+  // 于是它结构性恒 0，永远走 SKIPPED，却一直记作 passed。
+  //
+  // 现在的断言是端到端的因果链：点开一篇带未读圆点的文章 → 回列表 →
+  // 同一篇文章的圆点必须消失。三步都要有数据，缺一步就是失败而不是跳过。
   test('TC-UI-018: 文章已读标记', async ({ page }) => {
     await page.goto('/reader');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
-    
-    const articleCards = page.locator(ARTICLE_CARD);
-    if (await articleCards.count() > 0) {
-      // 查找未读文章（有紫色圆点的）
-      const unreadCards = page.locator('button.w-full:has(.bg-purple-500.rounded-full)');
-      const unreadCount = await unreadCards.count();
-      
-      if (unreadCount > 0) {
-        // 点击第一篇未读文章
-        await unreadCards.first().click();
-        await page.waitForTimeout(1000);
-        
-        // 返回列表
-        await page.goto('/reader');
-        await page.waitForTimeout(1000);
-        
-        console.log('✅ TC-UI-018 PASSED: 已读标记功能验证通过');
-      } else {
-        console.log('⏸️ TC-UI-018 SKIPPED: 无未读文章');
-      }
-    } else {
-      console.log('⏸️ TC-UI-018 SKIPPED: 无文章数据');
-    }
+    await page.waitForURL(/\/reader/, { timeout: 20000 });
+    await page.locator(ARTICLE_CARD).first().waitFor({ timeout: 15000 });
+
+    // 未读圆点：<span class="ml-auto w-2 h-2 rounded-full bg-[#007AFF] shrink-0">
+    // 用 evaluate 数，避免在 CSS 选择器里转义方括号。
+    const findUnreadIndex = () =>
+      page.evaluate(() => {
+        const cards = Array.from(document.querySelectorAll('button.w-full.text-left'));
+        return cards.findIndex((card) =>
+          Array.from(card.querySelectorAll('span')).some(
+            (span) =>
+              span.className.includes('rounded-full') &&
+              span.className.includes('bg-[#007AFF]')
+          )
+        );
+      });
+
+    const unreadIndex = await findUnreadIndex();
+    expect(unreadIndex, '列表里应当至少有一篇未读文章').toBeGreaterThanOrEqual(0);
+
+    const card = page.locator(ARTICLE_CARD).nth(unreadIndex);
+    const title = (await card.locator('h3').textContent({ timeout: 5000 }))?.trim() || '';
+    expect(title.length, '未读卡片的标题不能为空').toBeGreaterThan(0);
+
+    await card.click();
+    await page.locator('.reader-surface h1').waitFor({ timeout: 15000 });
+
+    await page.goto('/reader');
+    await page.locator(ARTICLE_CARD).first().waitFor({ timeout: 15000 });
+    await page.waitForTimeout(800);
+
+    const stillUnread = await page.evaluate((t) => {
+      const cards = Array.from(document.querySelectorAll('button.w-full.text-left'));
+      const target = cards.find((c) => (c.querySelector('h3')?.textContent || '').trim() === t);
+      if (!target) return null;
+      return Array.from(target.querySelectorAll('span')).some(
+        (span) =>
+          span.className.includes('rounded-full') && span.className.includes('bg-[#007AFF]')
+      );
+    }, title);
+
+    expect(stillUnread, `「${title.slice(0, 20)}」读过后应当不再显示未读圆点`).toBe(false);
+    console.log(`✅ TC-UI-018 PASSED: 读完「${title.slice(0, 20)}」后圆点消失`);
   });
 
   // TC-UI-019: 上一篇/下一篇导航

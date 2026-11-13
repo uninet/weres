@@ -117,6 +117,7 @@ export default function ReaderPage() {
     fetchArticles,
     markArticleAsRead,
     markArticleAsUnread,
+    markAllAsRead,
     patchArticle,
   } = useArticles({
     selectedFeed,
@@ -276,12 +277,17 @@ export default function ReaderPage() {
   }, [getCurrentArticleIndex, articles, handleSelectArticle]);
 
   // 全部标记为已读
+  //
+  // 改成走服务端批量端点。原来是对当前页的未读逐条 POST：
+  // 列表只加载第一页（≤100 条），所以点完之后第二页仍是未读，
+  // 用户会以为按钮坏了；而逐条 await 在几百篇时要几十秒。
   const handleMarkAllRead = useCallback(async () => {
-    const unreadArticles = articles.filter((a) => !a.isRead);
-    for (const article of unreadArticles) {
-      await markArticleAsRead(article.id);
-    }
-  }, [articles, markArticleAsRead]);
+    const marked = await markAllAsRead();
+    toast.success(
+      marked > 0 ? `已标记 ${marked} 篇文章为已读` : "没有未读文章"
+    );
+    await fetchArticles();
+  }, [markAllAsRead, fetchArticles]);
 
   // 自动同步：进入阅读器时以及按设定间隔后台刷新
   //

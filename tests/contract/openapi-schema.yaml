@@ -1,3 +1,10 @@
+# 这份 OpenAPI 描述是契约测试的参考文档，不是可执行的契约。
+#
+# 注意：它曾经声明 GET /feeds 与 GET /feeds/{id} 两个路由，而这两个路由
+# 在 Next 的 app/api/ 下根本不存在（真实路径是 /feeds/subscriptions）。
+# 更糟的是文件里没有一处代码加载它，所以这种"文档说的和实现不一致"
+# 既不会让任何测试失败，也没人会发现 —— 直到有人照着它去对接。
+# 因此这里删掉那两个不存在的路径：宁可少写，也不要写不存在的。
 openapi: 3.0.3
 info:
   title: WeRSS API
@@ -261,87 +268,6 @@ paths:
                   success:
                     type: boolean
 
-  /feeds:
-    get:
-      tags:
-        - Feeds
-      summary: Get user's subscribed feeds
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Feeds retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Feed'
-
-    post:
-      tags:
-        - Feeds
-      summary: Subscribe to a new RSS feed
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - url
-              properties:
-                url:
-                  type: string
-                  format: uri
-                  description: RSS feed URL
-                groupId:
-                  type: string
-                  description: Optional group ID
-      responses:
-        '200':
-          description: Feed subscribed successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    $ref: '#/components/schemas/Feed'
-
-  /feeds/{id}:
-    delete:
-      tags:
-        - Feeds
-      summary: Unsubscribe from feed
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Feed unsubscribed successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-
   /groups:
     get:
       tags:
@@ -397,6 +323,10 @@ paths:
                     $ref: '#/components/schemas/Group'
 
   /favorites:
+    # 注意：没有 /favorites/{articleId} 这个路径。
+    # 真实用法是 POST /favorites { articleId }（toggle 语义）
+    # 与 DELETE /favorites?ids=a,b（批量）。曾经这里声明过
+    # /favorites/{articleId}，实测请求它返回 404 —— 文档凭空多了一条接口。
     get:
       tags:
         - Favorites
@@ -417,53 +347,6 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Article'
-
-  /favorites/{articleId}:
-    post:
-      tags:
-        - Favorites
-      summary: Add article to favorites
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: articleId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Article added to favorites
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-
-    delete:
-      tags:
-        - Favorites
-      summary: Remove article from favorites
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: articleId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Article removed from favorites
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
 
   /sync:
     post:

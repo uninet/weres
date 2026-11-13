@@ -279,8 +279,8 @@ SMTP_FROM="you@qq.com"
 | `npm run test:unit` | Vitest 单元测试（无需起服务） |
 | `npm run test:integration` | Vitest 集成测试（**需先起 dev server**） |
 | `npm run test:e2e` | Playwright 端到端测试（需先起服务） |
-| `npm run verify` | **发布前主验收**：`e2e-verify` + `ui-verify` 两套共 140 条 |
-| `npm run verify:e2e` | 接口验收 86 条（订阅、阅读器、快捷键、内容、鉴权、健壮性、账号自助…） |
+| `npm run verify` | **发布前主验收**：`e2e-verify` + `ui-verify` 两套共 150 条 |
+| `npm run verify:e2e` | 接口验收 96 条（订阅、阅读器、快捷键、内容、鉴权、健壮性、**跨租户越权**、账号自助…） |
 | `npm run verify:ui` | 浏览器验收 54 条（响应式、正文排版、悬浮工具栏、导航入口、添加订阅页…） |
 | `npm run test` | Playwright 全部 project（UI + 6 组契约） |
 | `npm run test:contract` | 接口契约测试 65 条（6 组，需先起服务） |
@@ -328,6 +328,10 @@ SMTP_FROM="you@qq.com"
 │   ├── auth.ts                # JWT 签发/校验、鉴权入口
 │   ├── navigation.ts          # 全站导航唯一信息源（主入口 / 次级入口）
 │   ├── sanitize.ts            # RSS 正文 HTML 白名单净化
+│   ├── ownership.ts           # 归属校验唯一实现（分组 / 文章是否属于当前用户）
+│   ├── pagination.ts          # 分页参数夹紧（所有列表接口共用）
+│   ├── request.ts             # 请求体解析（畸形 JSON 返 400 而不是 500）
+│   ├── url-safety.ts          # 出站请求 SSRF 防护 + 重定向逐跳校验
 │   ├── rss-parser.ts          # RSS 抓取与解析
 │   ├── feed-icon.ts           # 本地生成首字 SVG 图标（不依赖第三方服务）
 │   ├── market.ts              # 市场数据唯一来源（扁平 / 按分类两种切法共用）
@@ -403,6 +407,16 @@ SMTP_FROM="you@qq.com"
   （不用 403：状态码差异本身就能被用来枚举 id 是否存在）。
   收藏这条尤其要留意 —— 少了归属校验时，任何人拿到一个 articleId 就能收藏别人的文章，
   再通过 `GET /api/favorites` 读到它的标题、链接、作者、摘要，收藏夹就成了越权读文章的旁路。
+- **归属校验只有一处实现**：`lib/ownership.ts` 的 `denyUnlessGroupOwned` /
+  `denyUnlessArticleVisible`。为什么要抽出来——同一个判断散在七八个路由里时，
+  总有一处会漏：本项目连续三轮都是「修了一处、漏了另一处」（favorite 加了闸
+  favorites 没加、POST 加了闸 PATCH 没加、groups 顶层 `where` 加了 `userId`
+  而嵌套 `include.subscriptions` 没加）。新增需要判断归属的接口时，
+  请调用这里的函数，不要再手写 `findFirst`。
+- **嵌套查询也要带 `userId`**：顶层 `where: { userId }` 只过滤了主表，
+  `include` 出来的关联记录仍然可以是别人的。`GET /api/groups` 与 `GET /api/opml`
+  里都有 `include: { subscriptions: { where: { userId } } }`，
+  少这一句的后果是导出文件混进别人的订阅——而这份文件会被导入下一个阅读器。
 - **令牌**：读 Cookie 也读 `Authorization: Bearer`，两者走同一个校验函数
   （`getCurrentUserFromRequest`）。早期 `read`/`favorite` 两个路由只读 Cookie，
   用 Bearer 调一律 401 —— 同一规则散在多处实现就会这样漂移。

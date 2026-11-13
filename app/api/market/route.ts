@@ -33,7 +33,15 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const auth = await requireAuth(req);
-    const userId = auth.user?.id; // 未登录时 userId 为 undefined
+    // 必须显式判错。requireAuth 的返回类型里 user 是可选的，
+    // 只写 `auth.user?.id` 会让「忘了判错」编译通过 ——
+    // 这一处就是这么漏的：全仓 20 个调用点里唯一没有 guard 的一个，
+    // 于是市场接口成了匿名可打的 390KB 全表扫描（无鉴权、无限流）。
+    // 市场页在 (main) 路由组里，本来就要求登录，匿名访问没有任何产品价值。
+    if (auth.error) {
+      return NextResponse.json(auth.error, { status: auth.status });
+    }
+    const userId = auth.user.id;
 
     const { searchParams } = new URL(req.url);
     const grouped =

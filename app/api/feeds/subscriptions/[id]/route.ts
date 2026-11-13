@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { denyUnlessGroupOwned } from "@/lib/ownership";
 import { readJsonBody } from "@/lib/request";
 
 // DELETE /api/feeds/subscriptions/[id] - 取消订阅
@@ -94,6 +95,12 @@ export async function PATCH(
         { status: 404 }
       );
     }
+
+    // 改挂分组时同样要校验目标分组是本人的 ——
+    // 这条路径和被修过的 POST 是同一个漏洞的另一半，
+    // 只修 POST 等于留了一扇同款的门。
+    const denied = await denyUnlessGroupOwned(user.id, groupId);
+    if (denied) return denied;
 
     // 更新订阅
     const updated = await prisma.subscription.update({

@@ -124,6 +124,7 @@ export function ArticleList({
             className="h-8 w-8 rounded-lg text-[#666] hover:text-[#1a1a1a] hover:bg-[#f0f0f0] dark:text-[#999] dark:hover:text-white dark:hover:bg-[#2a2a2a]"
             onClick={onMarkAllRead}
             title="全部已读"
+            aria-label="全部已读"
           >
             <CheckCheck className="h-4 w-4" />
           </Button>

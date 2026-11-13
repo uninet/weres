@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import { denyUnlessArticleVisible } from "@/lib/ownership";
 import { parsePagination } from "@/lib/pagination";
 import { readJsonBody } from "@/lib/request";
 import { sanitizePlainText } from "@/lib/sanitize";
@@ -120,6 +121,13 @@ export async function POST(req: Request) {
     const parsed = await readJsonBody(req, "请提供 articleId");
     if (!parsed.ok) return parsed.response;
     const { articleId } = toggleFavoriteSchema.parse(parsed.data);
+
+    // 归属校验：文章必须属于本人订阅的源。
+    // 少这一步时，任何人拿到一个 articleId 就能收藏别人的文章，
+    // 再通过 GET /api/favorites 读到它的标题、链接、作者、摘要 ——
+    // 收藏夹就成了越权读文章的旁路。收藏页走的正是这个路由。
+    const denied = await denyUnlessArticleVisible(user.id, articleId);
+    if (denied) return denied;
 
     // 检查是否已收藏
     const existingFavorite = await prisma.favorite.findUnique({

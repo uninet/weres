@@ -19,6 +19,8 @@ interface UseArticlesReturn {
   fetchArticles: () => Promise<void>;
   markArticleAsRead: (articleId: string) => Promise<void>;
   markArticleAsUnread: (articleId: string) => Promise<void>;
+  /** 把当前源（或全部）的未读一次标记完，返回实际标记的条数 */
+  markAllAsRead: () => Promise<number>;
   fetchArticleContent: (articleId: string) => Promise<Article | null>;
   /** 局部更新某篇文章的字段（收藏状态等），不触发重新请求 */
   patchArticle: (articleId: string, patch: Partial<Article>) => void;
@@ -58,10 +60,13 @@ export function useArticles({
       if (data.success) {
         setArticles(data.data.articles || []);
         setTotalArticles(data.data.pagination?.total || 0);
-        const unread = (data.data.articles || []).filter(
-          (a: Article) => !a.isRead
-        ).length;
-        setUnreadCount(unread);
+        // 用服务端给的未读数，不要自己数当前页。
+        //
+        // 原来这里是 `articles.filter(a => !a.isRead).length` ——
+        // 只数当前页（≤50 条），而真实未读可能是几百上千。
+        // 用户看到的未读角标因此永远 ≤50，且切到「未读」视图后
+        // 数字会突然从 1203 变成 50，看起来像数据错乱。
+        setUnreadCount(data.data.unreadCount ?? 0);
       }
     } catch (error) {
       console.error("Failed to fetch articles:", error);
@@ -103,6 +108,39 @@ export function useArticles({
       console.error("Failed to mark article as unread:", error);
     }
   }, []);
+
+  /**
+   * 把「未读」一次性标记完。
+   *
+   * 原来前端是 `articles.filter(a => !a.isRead)` 逐条 POST —— 有两个问题：
+   *   1. 它只能看到当前页（pageSize 上限 100），点了「全部已读」之后
+   *      第二页还是未读，用户会以为按钮失效；
+   *   2. 逐条 await 是 N 次网络往返，几百篇就要几十秒。
+   * 服务端早就有了 POST /api/articles/mark-all-read 能按 feedId 一次搞定，
+   * 但全仓零调用方 —— 典型的「接口写了没人接」。
+   */
+  const markAllAsRead = useCallback(async (): Promise<number> => {
+    try {
+      // 路径是 POST /api/articles —— 不是注释里那个 /api/articles/mark-all-read。
+      // Next 的 App Router 里 route.ts 的 POST 挂在目录路径上，
+      // 后面那段注释只是描述用途。第一版照着注释写，拿到的是 405。
+      const res = await fetch("/api/articles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(selectedFeed ? { feedId: selectedFeed } : {}),
+      });
+      const payload = await res.json().catch(() => null);
+      const marked = payload?.data?.markedCount ?? 0;
+
+      // 本地状态跟上：当前列表里所有未读都变成已读
+      setArticles((prev) => prev.map((a) => ({ ...a, isRead: true })));
+      setUnreadCount(0);
+      return marked;
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+      return 0;
+    }
+  }, [selectedFeed]);
 
   const fetchArticleContent = useCallback(
     async (articleId: string): Promise<Article | null> => {
@@ -153,6 +191,7 @@ export function useArticles({
     fetchArticles,
     markArticleAsRead,
     markArticleAsUnread,
+    markAllAsRead,
     fetchArticleContent,
     patchArticle,
   };

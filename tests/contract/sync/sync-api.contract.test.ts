@@ -16,6 +16,7 @@
 
 import { test, expect } from '@playwright/test';
 import { extractTokenFromResponse } from '../shared/auth';
+import { registerAndLogin } from '../shared/user';
 
 const BASE_URL = 'http://localhost:3000/api';
 
@@ -26,24 +27,16 @@ let testFeedId: string;
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async ({ request }) => {
-  const registerData = {
-    email: `sync-test-${Date.now()}@werss.com`,
-    password: 'Test@123456',
-    nickname: 'SyncContractTest'
-  };
-
-  await request.post(`${BASE_URL}/auth/register`, {
-    data: registerData,
-    headers: { 'Content-Type': 'application/json' }
+  // 注册与登录统一走 tests/contract/shared/user.ts。
+  // 每个文件自己写一遍且不检查注册状态码时，连跑第二轮会撞上
+  // 注册全局限流（60 次/分钟）→ login 401 → 报错却是
+  // 「Set-Cookie 里没有 token」，看起来像鉴权坏了。
+  // helper 遇到 429 会按 retryAfter 等一下再重试。
+  const user = await registerAndLogin(request, {
+    prefix: 'sync',
+    nickname: 'SyncTest',
   });
-
-  const loginResponse = await request.post(`${BASE_URL}/auth/login`, {
-    data: { email: registerData.email, password: registerData.password },
-    headers: { 'Content-Type': 'application/json' }
-  });
-
-  // 令牌在 HttpOnly Cookie 里，不在响应体（见 tests/contract/shared/auth.ts）
-  authToken = extractTokenFromResponse(loginResponse);
+  authToken = user.token;
 
   // 订阅一个实测稳定的源，供后续单源同步使用
   const subscribe = await request.post(`${BASE_URL}/feeds/subscriptions`, {

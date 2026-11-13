@@ -38,6 +38,10 @@ export async function GET(req: Request) {
       orderBy: { sortOrder: "asc" },
       include: {
         subscriptions: {
+          // 同 groups 路由：嵌套 include 不会继承父级的 userId 条件。
+          // 少了这行，导出的 OPML 里会混进别人的订阅 ——
+          // 而这份文件是用户要拿去导入下一个阅读器的。
+          where: { userId: user.id },
           include: { feed: true },
           orderBy: { createdAt: "asc" },
         },

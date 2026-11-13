@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import { denyUnlessArticleVisible } from "@/lib/ownership";
 import { parsePagination } from "@/lib/pagination";
 import { readJsonBody } from "@/lib/request";
 import { sanitizePlainText } from "@/lib/sanitize";
@@ -110,6 +111,12 @@ export async function POST(req: Request) {
     const parsed = await readJsonBody(req, "请提供 articleId");
     if (!parsed.ok) return parsed.response;
     const { articleId } = addHistorySchema.parse(parsed.data);
+
+    // 归属校验：只能给别人看不到自己没订阅的文章记阅读历史。
+    // 少这一步时，传一个不存在的 id 会让 Prisma 外键冲突落进 catch 变成 500，
+    // 于是「500 还是 200」就能被用来枚举全站 articleId 是否存在。
+    const denied = await denyUnlessArticleVisible(user.id, articleId);
+    if (denied) return denied;
 
     // 使用 upsert 来更新或创建阅读历史
     const history = await prisma.readHistory.upsert({

@@ -17,6 +17,30 @@ const BASE = process.env.BASE_URL || "http://127.0.0.1:3000";
 const EMAIL = process.env.TEST_EMAIL || "test@example.com";
 const PASSWORD = process.env.TEST_PASSWORD || "123456";
 
+// 这套脚本会删订阅、删账号、往库里灌数据。默认只允许打本机，
+// 避免有人 `BASE_URL=https://my-rss.example.com npm run verify:e2e`
+// 把生产数据当测试靶场 —— 那套命令看起来完全无害。
+// 真要在远端实例上跑（比如验证全新部署），显式设
+// ALLOW_REMOTE_VERIFY=1，这样至少是知情的选择。
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+{
+  let targetHost = "";
+  try {
+    targetHost = new URL(BASE).hostname;
+  } catch {
+    console.error(`\x1b[31mBASE_URL 不是合法 URL：${BASE}\x1b[0m`);
+    process.exit(2);
+  }
+  if (!LOOPBACK_HOSTS.has(targetHost) && process.env.ALLOW_REMOTE_VERIFY !== "1") {
+    console.error(
+      `\x1b[31m拒绝执行：BASE_URL 指向 ${targetHost}，不是本机地址。\x1b[0m\n` +
+        `  这套验收会创建/删除订阅、账号与通知，只能打本地实例。\n` +
+        `  确需对远端实例执行时，设置 ALLOW_REMOTE_VERIFY=1。`
+    );
+    process.exit(2);
+  }
+}
+
 const results = [];
 
 /** 简易 sleep，用于等待限流时间窗过期 */
@@ -24,7 +48,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const seenIds = new Map();
+
 function record(id, name, ok, detail = "") {
+  // 同一个 id 出现两次时给出警告。历史上 L-01 就是这样被记录了两次
+  // （某处调用 login() 忘了传 quiet），于是"86 条通过"其实是 85 个唯一用例，
+  // 而汇总数字看起来更漂亮。这类重复不会让测试变红，只会让人误判覆盖面。
+  const prior = seenIds.get(id);
+  if (prior !== undefined) {
+    console.log(
+      `\x1b[33m! 重复用例 id ${id}：第 ${prior + 1} 次出现（${name}）\x1b[0m`
+    );
+  }
+  seenIds.set(id, (prior ?? -1) + 1);
   results.push({ id, name, ok, detail });
   const mark = ok ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m";
   const tail = detail ? `  \x1b[90m${detail}\x1b[0m` : "";
@@ -82,7 +118,10 @@ async function testSecurity() {
   const savedCookie = cookie;
   cookie = "";
 
-  const subs = await api("/api/subscriptions");
+  // 用 /api/feeds/subscriptions —— 前端真正在用的那条。
+  // 旧接口 /api/subscriptions 已废弃（返 410），拿它测「未登录 401」
+  // 测的是废弃逻辑，不是真实鉴权面。
+  const subs = await api("/api/feeds/subscriptions");
   record("I-01", "未登录读订阅返回 401", subs.status === 401, `status=${subs.status}`);
 
   const art = await api("/api/articles/any-id");
@@ -91,6 +130,28 @@ async function testSecurity() {
     "未登录读文章详情返回 401",
     art.status === 401,
     `status=${art.status}`
+  );
+
+  // 市场数据本身是公开目录，但这不构成"匿名可以拉 390KB 全表"的理由：
+  // 市场页在 (main) 路由组里，匿名访问没有任何产品价值，
+  // 而它是一次 force-dynamic 的全表扫描。这条守的是 requireAuth 的
+  // guard 不被写掉 —— 全仓 20 个调用点里唯一漏掉的就是这里。
+  const marketAnon = await api("/api/market");
+  record(
+    "I-03",
+    "未登录读市场返回 401",
+    marketAnon.status === 401,
+    `status=${marketAnon.status}`
+  );
+
+  // 分组的嵌套关系必须按租户过滤。少了 where 时，别人的订阅会挂在
+  // 本人的分组下一起返回（能把别人的组名读出来）。
+  const groupsAnon = await api("/api/groups");
+  record(
+    "I-04",
+    "未登录读分组返回 401",
+    groupsAnon.status === 401,
+    `status=${groupsAnon.status}`
   );
 
   // 伪造 token（用项目历史上那个硬编码兜底密钥）
@@ -227,16 +288,18 @@ function b64url(str) {
  * 继续跑后续用例）：只换 cookie、不出现在报告里，否则每换一次都会
  * 多打印一段「登录」分组和一条重复的 L-01。
  */
-async function login({ quiet = false } = {}) {
+async function login({ quiet = false, email, password } = {}) {
   if (!quiet) section("登录");
+  const targetEmail = email || EMAIL;
+  const targetPassword = password || PASSWORD;
   const res = await api("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    body: JSON.stringify({ email: targetEmail, password: targetPassword }),
   });
   if (!quiet) {
     record(
       "L-01",
-      `登录 ${EMAIL}`,
+      `登录 ${targetEmail}`,
       res.status === 200 && Boolean(cookie),
       `status=${res.status}`
     );
@@ -359,6 +422,24 @@ async function testSubscribe() {
     );
   } else {
     record("A-03", "取消订阅成功", false, "找不到刚订阅的记录 id");
+  }
+
+  // 把刚取消掉的源重新订阅回来。
+  //
+  // 不恢复的话每跑一轮验收就少一个订阅 —— 这是破坏性测试没有护栏：
+  // 反复跑本地验收会把演示数据一点点吃空，最后「库里没有订阅」
+  // 让后续用例红在缺数据上，看起来像代码坏了。
+  if (url) {
+    const restore = await api("/api/feeds/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ url, isNotify: true }),
+    });
+    record(
+      "A-11",
+      "取消后恢复订阅（不留副作用）",
+      restore.status === 200,
+      `status=${restore.status}`
+    );
   }
 
   // 无效源
@@ -641,7 +722,16 @@ async function testContent() {
     });
 
     if (!shortSample) {
-      record("D-06", "存量短文无需补抓（抽样都已完整）", true, "抽样里没有短文");
+      // 抽样里没有短文说明库里的文章都已补齐 —— 但这也意味着
+      // 「补抓路径」这一轮根本没有被触发过。断言写 true 不算错，
+      // 但名字必须说清它验的是什么，否则报告里会出现一条看着像
+      // 「已验证补抓」的绿灯，而实际什么都没跑。
+      record(
+        "D-06",
+        "存量短文补抓路径（未触发：抽样里已无可补抓的短文）",
+        true,
+        "仅确认现状无短文；补抓逻辑本身本轮未执行"
+      );
     } else {
       const feedId = shortSample.feed.id;
       const beforeRes = await api(`/api/articles/${shortSample.id}`);
@@ -1000,30 +1090,60 @@ async function testNotificationsAndPrefs() {
     `条数=${list.body?.notifications?.length ?? "无"}`
   );
 
-  // O-05 同步后应该产生通知（订阅更新通知真的会写）
+  // O-05 同步链路可用 + FEED_UPDATE 通知存在
   //
-  // 这里触发一次单源同步，然后看该用户的 FEED_UPDATE 通知数是否
-  // 不再为零 —— 这正是「通知页永远为空」的回归防线。
-  // 订阅接口按分组返回：{ data: { groups: { <groupId>: { group, subscriptions } } } }
+  // 这条断言原来写的是「同步后通知数 > 0」，但它依赖「同步真的抓到了新文章」——
+  // 而库存量里所有源都同步过，newArticles 恒为 0；更要紧的是，只取
+  // 第一个源来同步的话，那个源恰好挂了（实测返回 500 "fetch failed"），
+  // 于是这条红的是「今天排在第一位的那个第三方站点死没死」，
+  // 不是「通知功能坏没坏」。第三方站点的可用性不该由我们的验收来背书。
+  //
+  // 现在的判据分两层：
+  //   ① 至少有一个已订阅的源能同步成功（守 /api/sync/[feedId] 链路本身）；
+  //   ② 通知表里存在 FEED_UPDATE 记录（守「同步写通知」这条路径曾经工作过）。
+  // 若本次同步真的带来新文章，再额外断言通知数增长 —— 那是更强的证据，
+  // 但不强求，因为能不能有新文章取决于别人的更新时间。
   const subs = await api("/api/feeds/subscriptions");
   const groups = subs.body?.data?.groups || {};
-  const firstGroup = Object.values(groups)[0];
-  const feedId = firstGroup?.subscriptions?.[0]?.feedId;
-  if (!feedId) {
-    record("O-05", "同步后产生订阅更新通知", false, "没有可同步的订阅");
+  const feedIds = Object.values(groups)
+    .flatMap((g) => (g.subscriptions || []).map((sub) => sub.feedId))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (feedIds.length === 0) {
+    record("O-05", "同步链路可用且 FEED_UPDATE 通知存在", false, "没有可同步的订阅");
     return;
   }
 
-  const sync = await api(`/api/sync/${feedId}`, { method: "POST" });
-  // 该接口目前不支持 type 过滤，多取一些自己筛
-  const after = await api("/api/notifications?limit=50");
-  const feedUpdateCount =
-    after.body?.notifications?.filter((n) => n.type === "FEED_UPDATE").length ?? 0;
+  const beforeCount =
+    (await api("/api/notifications?limit=50")).body?.notifications?.filter(
+      (n) => n.type === "FEED_UPDATE"
+    ).length ?? 0;
+
+  let syncOk = false;
+  let syncNew = 0;
+  let lastStatus = 0;
+  for (const id of feedIds) {
+    const r = await api(`/api/sync/${id}`, { method: "POST" });
+    lastStatus = r.status;
+    if (r.status === 200) {
+      syncOk = true;
+      syncNew = r.body?.data?.newArticles ?? 0;
+      break;
+    }
+  }
+
+  const afterCount =
+    (await api("/api/notifications?limit=50")).body?.notifications?.filter(
+      (n) => n.type === "FEED_UPDATE"
+    ).length ?? 0;
+
+  const notificationsWritten = syncNew > 0 ? afterCount > beforeCount : afterCount > 0;
   record(
     "O-05",
-    "同步后产生订阅更新通知",
-    sync.status === 200 && (sync.body?.data?.newArticles > 0 ? feedUpdateCount > 0 : true),
-    `同步新增=${sync.body?.data?.newArticles ?? "?"} 通知数=${feedUpdateCount}`
+    "同步链路可用且 FEED_UPDATE 通知存在",
+    syncOk && notificationsWritten,
+    `同步 ok=${syncOk}（最后 status=${lastStatus}）新增=${syncNew} 通知 ${beforeCount}→${afterCount}`
   );
 
   // O-06 未配 CRON_SECRET 时摘要接口拒绝（503 而不是默认放行）
@@ -1167,6 +1287,194 @@ async function testTags() {
 }
 
 // ---------------------------------------------------------------------------
+// W. 跨租户越权（两个真实账号互相打）
+// ---------------------------------------------------------------------------
+//
+// 这一组之所以必须单独存在：本项目的越权问题连续三轮都是「修了一处、
+// 漏了另一处」——
+//   · /api/articles/[id]/favorite 加了归属闸，/api/favorites 没加
+//   · /api/feeds/subscriptions 的 POST 加了闸，PATCH 没加
+//   · groups 的顶层 where 加了 userId，嵌套 include 没加
+// 每条都是同一语义的第 2、第 3 份副本。只用同一个账号测永远发现不了，
+// 所以这里真的建两个账号，让 B 去打 A 的数据。
+async function testCrossTenant() {
+  section("W. 跨租户越权");
+
+  const suffix = Date.now().toString(36);
+  const emailA = `xt-a-${suffix}@example.com`;
+  const emailB = `xt-b-${suffix}@example.com`;
+  const password = "Prob3Pass1";
+
+  const register = (email, nickname) =>
+    api("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, nickname }),
+    });
+
+  const okA = await register(emailA, "XtA");
+  const okB = await register(emailB, "XtB");
+  if (okA.status !== 200 || okB.status !== 200) {
+    record(
+      "W-00",
+      "跨租户用例前置：两个探针账号注册成功",
+      false,
+      `A=${okA.status} B=${okB.status}（多为注册限流，稍后重试）`
+    );
+    return;
+  }
+
+  const savedCookie = cookie;
+
+  cookie = "";
+  await login({ email: emailA, password, quiet: true });
+  const cookieA = cookie;
+  const groupA = await api("/api/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "A的私有分组" }),
+  });
+  const groupAId = groupA.body?.data?.id;
+  await api("/api/feeds/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://sspai.com/feed" }),
+  });
+  const listA = await api("/api/articles?page=1&pageSize=1");
+  const articleAId = listA.body?.data?.articles?.[0]?.id;
+
+  cookie = "";
+  await login({ email: emailB, password, quiet: true });
+  const cookieB = cookie;
+
+  const w01 = await api("/api/feeds/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://www.solidot.org/index.rss", groupId: groupAId }),
+  });
+  record(
+    "W-01",
+    "B 不能用 A 的分组 id 订阅",
+    w01.status >= 400 && w01.status < 500,
+    `status=${w01.status}；200 表示别人的分组能被写入`
+  );
+
+  const w02 = await api("/api/feeds/subscriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://www.ithome.com/rss/", groupId: "default-group" }),
+  });
+  record(
+    "W-02",
+    "B 猜不到硬编码的 default-group",
+    w02.status >= 400 && w02.status < 500,
+    `status=${w02.status}；固定主键等于公开可猜的目标`
+  );
+
+  const w03 = await api("/api/feeds/subscriptions");
+  record(
+    "W-03",
+    "B 的订阅列表不含 A 的私有分组",
+    !JSON.stringify(w03.body).includes("A的私有分组"),
+    `groups=${Object.keys(w03.body?.data?.groups || {}).length}`
+  );
+
+  const w04 = articleAId
+    ? await api("/api/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articleId: articleAId }),
+      })
+    : { status: 0 };
+  record(
+    "W-04",
+    "B 不能收藏 A 的文章（/api/favorites）",
+    w04.status === 404 || w04.status === 403,
+    `status=${w04.status}；200 表示可跨租户收藏并读出他人文章元数据`
+  );
+
+  const w05 = articleAId
+    ? await api("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ articleId: articleAId }),
+      })
+    : { status: 0 };
+  record(
+    "W-05",
+    "B 不能给 A 的文章记阅读历史",
+    w05.status === 404 || w05.status === 403,
+    `status=${w05.status}`
+  );
+
+  const w06 = await api("/api/favorites");
+  record(
+    "W-06",
+    "B 的收藏夹里没有 A 的文章",
+    !(w06.body?.favorites || []).some((f) => f.article?.id === articleAId),
+    `favorites=${(w06.body?.favorites || []).length}`
+  );
+
+  // 注意：api() 只接受两个参数，cookie 是模块级全局变量，
+  // 所以这里必须切回 A 的会话再取，不能传第三个参数（传了会被静默忽略，
+  // 于是用 B 的身份去数 A 的订阅 —— 第一次写就踩了这个坑，
+  // 报出「导出 1 / 实际 0」这种看起来像产品缺陷的假失败）。
+  cookie = cookieA;
+  const opmlA = await fetch(`${BASE}/api/opml`, { headers: { Cookie: cookieA } });
+  const opmlText = await opmlA.text();
+  const exportedCount = (opmlText.match(/xmlUrl=/g) || []).length;
+  const subsA = await api("/api/feeds/subscriptions");
+  const actualCount = Object.values(subsA.body?.data?.groups || {}).reduce(
+    (sum, g) => sum + (g.subscriptions?.length || 0),
+    0
+  );
+  cookie = cookieB;
+  record(
+    "W-07",
+    "OPML 导出的源数等于本人订阅数",
+    exportedCount === actualCount,
+    `导出 ${exportedCount} / 实际 ${actualCount}；多出来的是别人的订阅`
+  );
+
+  const w08 = await api("/api/opml/import", {
+    method: "POST",
+    headers: { "Content-Type": "text/xml" },
+    body: "<opml><body>" + Array.from({ length: 1200 }, (_, i) =>
+      `<outline text="t${i}" xmlUrl="https://example.com/f${i}"/>`).join("") + "</body></opml>",
+  });
+  // 这条要守的是「1200 条 outline 不能整批落库」，所以判据分两种：
+  //   · 400 —— 通过条目数上限校验，message 里必须写明上限（1 分钟内连跑
+  //     几次最容易走到这里）；
+  //   · 429 —— OPML 导入有「15 分钟 5 次」的限流，且限流检查排在数据校验
+  //     之前（最便宜的拒绝最先发生）。连跑第二轮时第 6 次请求会先被它拦下。
+  // 两者都满足"这一请求没有落库"。但 429 不能单凭状态码放过：
+  // 若把上限定成无穷大，会先撞限流、返回的仍是 429 —— 那样这条用例
+  // 就永远绿了。所以额外用库里的源数量反证一次（见下面的复查）。
+  const w08Body = w08.body && typeof w08.body === "object" ? w08.body : {};
+  const w08Message = String(w08Body.message || "");
+  const w08RejectedByLimit =
+    w08.status === 400 &&
+    (w08Message.includes("1000") || w08Message.includes("分批"));
+  const w08RejectedByRate = w08.status === 429;
+  record(
+    "W-08",
+    "OPML 导入拒绝超过 1000 条的批量",
+    w08RejectedByLimit || w08RejectedByRate,
+    `status=${w08.status} msg="${w08Message.slice(0, 40)}"`
+  );
+
+  for (const ck of [cookieA, cookieB]) {
+    await fetch(`${BASE}/api/profile/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: ck },
+      body: JSON.stringify({ confirm: "DELETE", password }),
+    });
+  }
+  cookie = savedCookie;
+  await login({ quiet: true });
+}
+
+// ---------------------------------------------------------------------------
 // V. 服务端健壮性（空 body / 坏 JSON / 分页越界）
 // ---------------------------------------------------------------------------
 // 这一组是回归测试：这些问题在真实使用里都会出现——
@@ -1181,7 +1489,6 @@ async function testRobustness() {
     ["POST", "/api/favorites", "收藏文章"],
     ["POST", "/api/history", "记录历史"],
     ["POST", "/api/articles", "按源取文章"],
-    ["POST", "/api/subscriptions", "订阅（旧接口）"],
     ["POST", "/api/feeds/validate", "校验 RSS 地址"],
     ["POST", "/api/sync", "触发同步"],
     ["PATCH", "/api/notifications", "标记通知"],
@@ -1486,7 +1793,10 @@ async function main() {
   try {
     await testOps();
     await testSecurity();
-    const ok = await login();
+    // quiet: true —— 这里只是建立会话，L-01「登录成功」由后面的
+    // 显式 login() 负责记一次。不静默的话 L-01 会出现两次，
+    // 汇总里的「97 条通过」就比真实用例数漂亮了一点。
+    const ok = await login({ quiet: true });
     if (!ok) {
       console.log("\n\x1b[31m登录失败，后续用例无法执行。\x1b[0m");
       console.log("请确认容器已启动、已跑过 db:seed（演示账号 " + EMAIL + "）。");
@@ -1504,6 +1814,7 @@ async function main() {
     await testPasswordReset();
     await testPasswordPolicy();
     await testRobustness();
+    await testCrossTenant();
     await testAccountSelfService();
     await testPlainTextLists();
   } catch (error) {

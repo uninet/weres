@@ -113,7 +113,7 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 > 遍历，遇到「不含块级子元素、且文本等于标题」的元素就删掉并立刻停止，
 > 中途累计到 200 字以上则判定「已进入正文」不再寻找。
 
-### W. 全文抓取（存量补齐）
+### 全文抓取（存量补齐）
 
 | 编号 | 场景 | 预期 |
 | --- | --- | --- |
@@ -530,6 +530,36 @@ curl -s -c /tmp/werss-cookie.txt -X POST http://127.0.0.1:3000/api/auth/login \
 > `window.open(link)`，Z-04 报「`/favorites` · 我的收藏」；恢复后通过。
 > 永远绿的用例比没有用例更危险。
 
+### W. 跨租户越权（两个真实账号）
+
+这一组必须用**两个账号**跑。本项目越权连续三轮都是「修了一处、漏了另一处」：
+
+- `/api/articles/[id]/favorite` 加了归属校验，`/api/favorites` 没加；
+- `POST` 加了，`PATCH /api/feeds/subscriptions/[id]` 没加；
+- `groups` 顶层 `where` 加了 `userId`，嵌套的 `include.subscriptions` 没加。
+
+只用同一个账号测，永远发现不了这些——因为每一处单看都「能用」。
+
+| ID | 用例 | 期望 |
+|----|------|------|
+| W-01 | B 用 A 的分组 id 订阅 | 4xx（200 表示别人的分组能被写入） |
+| W-02 | B 猜 `default-group` 这个硬编码主键 | 4xx（固定主键等于公开可猜的目标） |
+| W-03 | B 的订阅列表里不含 A 的私有分组 | 看不到 A 的组名 |
+| W-04 | B 收藏 A 的文章（`POST /api/favorites`） | 404/403（收藏页 UI 走的正是这条） |
+| W-05 | B 给 A 的文章记阅读历史（`POST /api/history`） | 404/403 |
+| W-06 | B 的收藏夹里没有 A 的文章 | 空 |
+| W-07 | OPML 导出的源数 == 本人订阅数 | 相等（导出混进别人的订阅，这份文件会被导入下一个阅读器） |
+| W-08 | OPML 导入拒绝超过 1000 条的批量 | 400（带「请分批导入」）或 429 |
+
+> **W-07 的写法有个坑**：脚本里的 `api()` 只接受 `(path, options)` 两个参数，
+> cookie 是模块级全局变量。传第三个参数会被静默忽略，于是用 B 的身份
+> 数 A 的订阅，报「导出 1 / 实际 0」。正确写法是先 `cookie = cookieA` 再调用。
+
+> **W-08 不能只认 400**：OPML 导入带「15 分钟 5 次」限流，且限流检查刻意排在
+> 数据校验之后（结构拒绝零成本，不该占用户额度）。所以连跑第二轮时也可能
+> 先撞 429——两者都满足「这一请求没有落库」。但 429 不能单凭状态码放过：
+> 把上限定成无穷大同样会先撞限流返回 429，那样这条用例就永远绿了。
+
 ## 4. 自动化执行
 
 一条命令跑完 A–Z 的全部可自动化用例：
@@ -612,9 +642,11 @@ BASE_URL=http://127.0.0.1:3001 TEST_EMAIL=test@example.com TEST_PASSWORD=123456 
 ## 8. 本轮实测结果
 
 ```
-npm run verify:e2e   → 结果：86/86 通过（未配 SMTP）/ 88/88 通过（配了 SMTP）
+npm run verify:e2e   → 结果：96/96 通过（未配 SMTP）
 npm run verify:ui    → 结果：54/54 通过
-npx vitest run       → 31 passed (3 files)
+npm run test:contract → 65 passed
+npm run test:e2e      → 13 passed
+npx vitest run       → 38 passed (4 files)
 node node_modules/typescript/lib/_tsc.js --noEmit  → PASS
 npx next lint        → 0 error（仅 no-img-element / exhaustive-deps 警告）
 ```

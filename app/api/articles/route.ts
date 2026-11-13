@@ -4,34 +4,24 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { sanitizePlainText } from "@/lib/sanitize";
 import { readJsonBody } from "@/lib/request";
+import {
+  MAX_PAGE_SIZE,
+  MAX_PAGE,
+  DEFAULT_PAGE_SIZE,
+  toBoundedInt,
+} from "@/lib/pagination";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
 // 并且在部署后永远返回同一份旧数据）。
 export const dynamic = "force-dynamic";
 
-/** 单页最多返回的文章数。超过这个值通常是爬虫或误用。 */
-const MAX_PAGE_SIZE = 100;
-/** 默认每页条数。 */
-const DEFAULT_PAGE_SIZE = 20;
-/** 允许翻到的最深页码，避免超大 skip 拖垮数据库。 */
-const MAX_PAGE = 10000;
-
-/**
- * 把查询参数解析成夹紧在 [min, max] 区间内的整数。
- * 非数字、NaN、Infinity 一律退回默认值。
- */
-function toBoundedInt(
-  raw: string | null,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  if (raw === null) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, parsed));
-}
+// 分页常量与夹紧函数统一从 lib/pagination.ts 取。
+//
+// 这里原本自己抄了一份 toBoundedInt 和三个常量 —— 同一语义的第二份实现。
+// 两份的差异已经不痛不痒但真实存在（本地版不处理空字符串 ""，
+// 共享版处理），而这种「看着一样、改一处忘一处」的分叉正是本项目
+// 反复踩的坑：V 组测试就是靠共享版才守住 limit=999999 会被夹到 100。
 
 // GET /api/articles - 获取文章列表
 export async function GET(req: Request) {
@@ -157,7 +147,16 @@ export async function GET(req: Request) {
     }
 
     // 获取文章总数
-    const total = await prisma.article.count({ where });
+    //
+    // 必须用「去重后」的口径，否则分页会飘：同一篇文章可能出现在多个源里
+    // （全文 RSS + 摘要 RSS、聚合站转载），列表是按 link 去重后再截到 pageSize 的。
+    // 改动前 total 是去重前的行数，实测 pageSize=100 时 14 页累计 1322 行 = total，
+    // 但唯一 id 只有 1251 —— 用户翻到最后几页看到空白页，而页码显示还没到底。
+    //
+    // 曾经担心 groupBy 全表太贵，实测反直觉：count 30ms、groupBy link 9ms
+    // （count 要扫行，groupBy 走 link 索引）。所以直接用精确值，不做近似。
+    const distinctLinks = await prisma.article.groupBy({ by: ["link"], where });
+    const total = distinctLinks.length;
 
     // 获取文章列表
     //
@@ -208,6 +207,12 @@ export async function GET(req: Request) {
       orderBy: {
         pubDate: sortOrder,
       },
+      // skip 按「去重前的行」算。去重发生在取回之后，两者有约 5% 的错位
+      // （实测 1343 行 / 1271 个唯一 link），表现为深翻页时某页少几条。
+      // 想彻底对齐需要把去重下推到 SQL（窗口函数），代价是查询复杂度
+      // 陡增而后端每页只多出个位数条目 —— 不值得。
+      // 页码的上限用去重后的 total 算，所以不会出现「翻到最后是空白页
+      // 但页码还没到底」。
       skip: (page - 1) * pageSize,
       take: fetchLimit,
     });
@@ -224,20 +229,20 @@ export async function GET(req: Request) {
       .slice(0, pageSize);
 
     // 计算未读数量
-    const unreadCount = await prisma.article.count({
-      where: {
-        feed: {
-          subscriptions: {
-            some: {
-              userId: user.id,
-            },
-          },
-        },
-        id: {
-          notIn: readIds.length > 0 ? readIds : [""],
-        },
-      },
-    });
+    //
+    // 两个改动：
+    //   1) 用关系过滤代替 id: { notIn: readIds } —— 同一个 P2029 坑，
+    //      已读数过千时这里也会 500（count 同样受 SQLite 绑定变量上限约束）。
+    //   2) 尊重 feedId / groupId / 搜索条件 —— 原来无论选的是哪个源，
+    //      都返回全站未读数。实测选中一个只有 6 篇文章的源时，
+    //      接口返回 total=6 但 unreadCount=1203，
+    //      前端只好把它丢掉、改用「当前页里未读的条数」（≤50），
+    //      于是左栏未读角标和实际差两个数量级。
+    const unreadWhere: Prisma.ArticleWhereInput = { ...where };
+    delete (unreadWhere as { readHistories?: unknown }).readHistories;
+    unreadWhere.readHistories = { none: { userId: user.id } };
+
+    const unreadCount = await prisma.article.count({ where: unreadWhere });
 
     // 格式化返回数据
     const formattedArticles = articles.map((article) => ({
@@ -280,7 +285,12 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/articles/mark-all-read - 标记所有文章为已读
+// POST /api/articles - 把所有未读文章标记为已读
+//
+// 路径就是 /api/articles 本身（App Router 的 POST 挂在目录上），
+// 不是 /api/articles/mark-all-read。历史上这句注释写的是后者，
+// 前端照着它调用拿到 405，于是「全部已读」按钮一直是坏的 ——
+// 而服务端这个端点写了却全仓零调用方。
 export async function POST(req: Request) {
   try {
     const auth = await requireAuth(req);
@@ -301,14 +311,12 @@ export async function POST(req: Request) {
     if (!parsed.ok) return parsed.response;
     const { feedId } = parsed.data;
 
-    // 获取用户已读文章 ID
-    const readHistories = await prisma.readHistory.findMany({
-      where: { userId: user.id },
-      select: { articleId: true },
-    });
-    const readIds = readHistories.map((h) => h.articleId);
-
     // 构建查询条件（同上，用精确类型而非 any）
+    //
+    // 「未读」用关系过滤而不是 id: { notIn: readIds }：
+    // 已读数超过 999 时后者会触发 SQLite 的绑定变量上限（P2029），
+    // 而 NOT IN 无法被 Prisma 拆成多条查询规避 —— 表现为标记已读永久 500。
+    // 这个分支和列表接口的 type=unread 是同一个坑，必须一起用关系过滤。
     let where: Prisma.ArticleWhereInput = {
       feed: {
         subscriptions: {
@@ -317,9 +325,7 @@ export async function POST(req: Request) {
           },
         },
       },
-      id: {
-        notIn: readIds.length > 0 ? readIds : [""],
-      },
+      readHistories: { none: { userId: user.id } },
     };
 
     if (feedId) {
@@ -335,6 +341,10 @@ export async function POST(req: Request) {
     });
 
     // 批量创建阅读历史
+    //
+    // 用 createMany 而不是逐条 upsert：一个用了一年的库里未读可能有几千篇，
+    // 逐条 await 就是几千次往返，请求会拖到网关超时；而上面的 where
+    // 已经排除了已读，不存在需要 update 的冲突行。
     const newReadHistories = unreadArticles.map((article) => ({
       userId: user.id,
       articleId: article.id,
@@ -342,19 +352,7 @@ export async function POST(req: Request) {
     }));
 
     if (newReadHistories.length > 0) {
-      // 使用 upsert 避免重复
-      for (const history of newReadHistories) {
-        await prisma.readHistory.upsert({
-          where: {
-            userId_articleId: {
-              userId: history.userId,
-              articleId: history.articleId,
-            },
-          },
-          update: { readAt: history.readAt },
-          create: history,
-        });
-      }
+      await prisma.readHistory.createMany({ data: newReadHistories });
     }
 
     return NextResponse.json({

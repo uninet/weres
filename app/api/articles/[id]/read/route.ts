@@ -73,23 +73,12 @@ export async function POST(
       },
     });
 
-    // 获取该RSS源的未读文章数量
-    const readArticleIds = await prisma.readHistory.findMany({
-      where: {
-        userId: user.id,
-      },
-      select: {
-        articleId: true,
-      },
-    });
-    const readIds = readArticleIds.map((r) => r.articleId);
-
+    // 关系过滤而不是 notIn：已读数过千时会撞 SQLite 绑定变量上限（P2029）。
+    // 这个接口每读一篇文章都要跑两次未读统计，是最高频的路径之一。
     const unreadCount = await prisma.article.count({
       where: {
         feedId: article.feedId,
-        id: {
-          notIn: readIds.length > 0 ? readIds : [""],
-        },
+        readHistories: { none: { userId: user.id } },
       },
     });
 
@@ -103,9 +92,7 @@ export async function POST(
             },
           },
         },
-        id: {
-          notIn: readIds.length > 0 ? readIds : [""],
-        },
+        readHistories: { none: { userId: user.id } },
       },
     });
 
@@ -165,22 +152,12 @@ export async function DELETE(
     }
 
     // 获取该RSS源的未读文章数量
-    const readArticleIds = await prisma.readHistory.findMany({
-      where: {
-        userId: user.id,
-      },
-      select: {
-        articleId: true,
-      },
-    });
-    const readIds = readArticleIds.map((r) => r.articleId);
-
+    // 关系过滤而不是 notIn：已读数过千时会撞 SQLite 绑定变量上限（P2029）。
+    // 这个接口每读一篇文章都要跑两次未读统计，是最高频的路径之一。
     const unreadCount = await prisma.article.count({
       where: {
         feedId: article.feedId,
-        id: {
-          notIn: readIds.length > 0 ? readIds : [""],
-        },
+        readHistories: { none: { userId: user.id } },
       },
     });
 
@@ -194,9 +171,7 @@ export async function DELETE(
             },
           },
         },
-        id: {
-          notIn: readIds.length > 0 ? readIds : [""],
-        },
+        readHistories: { none: { userId: user.id } },
       },
     });
 

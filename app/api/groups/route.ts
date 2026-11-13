@@ -28,6 +28,10 @@ export async function GET(req: Request) {
       where: { userId: user.id },
       include: {
         subscriptions: {
+          // 嵌套关系必须自己加租户过滤。prisma 的 include 不会因为父级
+          // 带了 where 就把条件传下去 —— 少了这行，别人的订阅会挂在
+          // 本人的分组下面一起返回（实测能把别人的组名与 userId 读出来）。
+          where: { userId: user.id },
           include: {
             feed: {
               select: {
@@ -70,7 +74,9 @@ export async function GET(req: Request) {
           by: ["feedId"],
           where: {
             feedId: { in: feedIds },
-            id: { notIn: readIds.length > 0 ? readIds : [""] },
+            // 用关系过滤而不是 notIn：已读数过千时 notIn 会撞
+            // SQLite 的绑定变量上限（P2029），而未读数统计是每个请求都跑的。
+            readHistories: { none: { userId: user.id } },
           },
           _count: { _all: true },
         })
@@ -118,7 +124,7 @@ export async function GET(req: Request) {
         by: ["feedId"],
         where: {
           feedId: { in: ungroupedFeedIds },
-          id: { notIn: readIds.length > 0 ? readIds : [""] },
+          readHistories: { none: { userId: user.id } },
         },
         _count: { _all: true },
       });

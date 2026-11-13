@@ -1200,12 +1200,39 @@ export async function syncFeed(feedId: string): Promise<FeedSyncResult> {
  * 一次调用要跑几分钟，且任何人都能反复触发。
  * 普通用户打开应用时想刷新的，本来就只是自己订阅的那几十个。
  */
+/**
+ * SYNCING 锁的租约时长。
+ * 一次同步的正常耗时是几秒（单个源最多 20s 超时 + 15 篇文章的补抓预算），
+ * 10 分钟足够覆盖慢源；超过这个时间的 SYNCING 一定是进程中断留下的。
+ */
+const STALE_SYNC_MS = 10 * 60 * 1000;
+
 export async function syncAllFeeds(userId?: string): Promise<{ success: boolean; results: BatchSyncResult[] }> {
   try {
+    // SYNCING 是一个「租约」而不是永久标记。
+    //
+    // 原来只写 `syncStatus: { not: 'SYNCING' }`，而置为 SYNCING 之后
+    // 只有在同步成功/失败的分支才会改回来 —— 进程被杀、容器重建、
+    // 或者 fetch 卡在一个不返回的连接上（没有超时的老代码），
+    // 这个源就永远停在 SYNCING，之后每一次「刷新全部」都会被排除。
+    // 实测线上有两只源卡了一百多分钟，用户看到的现象是
+    // 「这个源永远不更新，但别的源都正常」。
+    //
+    // 现在给租约设一个超时：超过 STALE_SYNC_MS 的 SYNCING 视为陈旧，
+    // 允许重新同步 —— 代价是极端情况下同一源被并发抓两次（幂等，
+    // 只会多一次外呼），换来的是永远不会永久卡死。
+    const staleCutoff = new Date(Date.now() - STALE_SYNC_MS);
+
     const feeds = await prisma.feed.findMany({
       where: {
         isActive: true,
-        syncStatus: { not: 'SYNCING' },
+        OR: [
+          { syncStatus: { not: 'SYNCING' } },
+          // 陈旧锁：仍在 SYNCING，但最后一次动手早于阈值
+          { syncStatus: 'SYNCING', lastSyncAt: { lt: staleCutoff } },
+          // lastSyncAt 为空的 SYNCING（理论上不该有，兜住一次）
+          { syncStatus: 'SYNCING', lastSyncAt: null },
+        ],
         // 传 userId 时收敛到「我订阅的」，未传则维持全量（运维脚本）
         ...(userId
           ? { subscriptions: { some: { userId } } }

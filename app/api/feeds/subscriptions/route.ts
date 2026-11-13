@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { parseRSSFeed, extractFavicon } from "@/lib/rss-parser";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import { denyUnlessGroupOwned } from "@/lib/ownership";
 import { sanitizeArticleHtml, sanitizePlainText } from "@/lib/sanitize";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
@@ -53,7 +54,9 @@ export async function GET(req: Request) {
           by: ["feedId"],
           where: {
             feedId: { in: feedIds },
-            id: { notIn: readIds.length > 0 ? readIds : [""] },
+            // 用关系过滤而不是 notIn：已读数过千时 notIn 会撞
+            // SQLite 的绑定变量上限（P2029），而未读数统计是每个请求都跑的。
+            readHistories: { none: { userId: user.id } },
           },
           _count: { _all: true },
         })
@@ -174,6 +177,14 @@ export async function POST(req: Request) {
     // 就带着 groupId=null 落库，左栏永远看不到它 —— 用户会以为
     // 订阅没成功。所以没指定分组时落到用户的第一个分组；
     // 一个分组都没有就建一个「默认分组」。
+    // 调用方显式指定分组时，必须先确认那个分组是本人的。
+    // 少这一步时，任何人猜到别人的 group id 就能把订阅挂进对方的分组；
+    // 更糟的是对方删组时 schema 的 onDelete: SetNull 会把这个人的订阅
+    // 一起"移出分组"，而他自己毫不知情。`default-group` 这类固定 id
+    // 甚至不用猜。
+    const denied = await denyUnlessGroupOwned(user.id, groupId);
+    if (denied) return denied;
+
     let targetGroupId = groupId;
     if (!targetGroupId) {
       const firstGroup = await prisma.group.findFirst({

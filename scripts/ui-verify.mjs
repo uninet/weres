@@ -410,6 +410,32 @@ async function main() {
     `开前摘要 ${descBefore} 条 → 开后 ${descAfter} 条`
   );
 
+  // P 组前置：确保库里有未读文章。
+  //
+  // P-02（未读角标）和 P-03（自动已读开关）都需要「存在未读文章」这个前提，
+  // 而它会被别的操作悄悄吃掉：跑一次「全部已读」、或者前一轮 P-03 自己
+  // 点开了文章，未读数就归零。届时两条用例会双双变成 0 → 0 的空转，
+  // 报错信息看着像开关坏了，实际是夹具没了。
+  //
+  // 这里用 DELETE /api/articles/:id/read 把最近几篇重新标回未读，
+  // 让断言的对象由用例自己保证，而不是依赖库的当前状态。
+  const ensureUnread = async (count) => {
+    // page.request 需要绝对地址（相对路径会被当成空 URL 抛 Invalid URL），
+    // 而页面里 fetch 用的是相对路径 —— 两者不能混用。
+    // 直接用脚本顶部的 BASE，它已经带上了 BASE_URL 环境变量的支持。
+    const res = await page.request.get(
+      `${BASE}/api/articles?pageSize=${Math.max(count, 5)}`
+    );
+    const body = await res.json().catch(() => null);
+    const articles = body?.data?.articles || [];
+    const readOnes = articles.filter((a) => a.isRead).slice(0, count);
+    for (const a of readOnes) {
+      await page.request.delete(`${BASE}/api/articles/${a.id}/read`);
+    }
+    return readOnes.length;
+  };
+  const restored = await ensureUnread(3);
+
   // P-02 未读角标：关掉后角标不应再渲染
   // 未读角标的渲染位置：左下角入口按钮里的那个小胶囊
   // （顶栏取消后它跟着搬到了这里）
@@ -661,14 +687,33 @@ async function main() {
   // 用 `button:has(div.rounded-md)` 而不是按文字或 svg 图标定位：
   // 源条目里那个圆角方块是「有 icon 就用 img、没有就用首字母」的容器，
   // 只出现在源行上；顶部导航项用的是 lucide 图标，不会命中。
-  const feedEntry = mobile.locator("button:has(div.rounded-md)").first();
-  if ((await feedEntry.count()) > 0) {
-    await feedEntry.click();
+  //
+  // 但「第一个源」不一定有文章：刚订阅还没同步的源、或者同步失败的源，
+  // 点进去就是空列表。单独跑 ui-verify 时排在第一的是有内容的源，
+  // 而跟在 e2e 后面跑时（e2e 会重新订阅一个源并把它排到前面）
+  // 第一个可能恰好是空的 —— 于是 R-08 红在「点了源列表 0 条」，
+  // 看起来像「移动端不展开列表」，实际是选错了源。
+  // 这里依次试最多 4 个源，取第一个能出列表的，断言才落在产品行为上。
+  const feedEntries = mobile.locator("button:has(div.rounded-md)");
+  const feedCount = Math.min(await feedEntries.count(), 4);
+  let listVisible = 0;
+  let hasArticle = false;
+  let usedIndex = -1;
+  for (let i = 0; i < feedCount; i++) {
+    await feedEntries.nth(i).click();
     await mobile.waitForTimeout(2400);
-
-    const listVisible = await visibleCount(mobile, "button.w-full.text-left");
-    const hasArticle = await mobile.evaluate(() => document.querySelector("article") !== null);
-    record("R-08", "移动端点源后停在列表（不自动进正文）", listVisible > 0 && !hasArticle, `${listVisible} 条`);
+    listVisible = await visibleCount(mobile, "button.w-full.text-left");
+    hasArticle = await mobile.evaluate(() => document.querySelector("article") !== null);
+    usedIndex = i;
+    if (listVisible > 0) break;
+  }
+  if (usedIndex >= 0) {
+    record(
+      "R-08",
+      "移动端点源后停在列表（不自动进正文）",
+      listVisible > 0 && !hasArticle,
+      `${listVisible} 条（第 ${usedIndex + 1} 个源）`
+    );
 
     if (listVisible > 0) {
       await mobile.locator("button.w-full.text-left").first().click();
