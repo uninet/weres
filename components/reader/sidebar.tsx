@@ -111,10 +111,17 @@ export function Sidebar({
         {!sidebarCollapsed && (
           <div className="px-4 py-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-[#999] uppercase tracking-wider">Feeds</span>
-            <Link href="/market">
-              <Button variant="ghost" size="icon" className="h-6 w-6 rounded-md hover:bg-[#e8e8e8] dark:hover:bg-[#252525]">
-                <Plus className="h-3.5 w-3.5 text-[#666]" />
-              </Button>
+            {/* 添加订阅走独立的 /add 页，而不是 /market。
+                市场页是一张 896 个源的卡片墙，用户想订一个源得先滚过
+                几百张卡片；/add 上半屏直接粘链接、下半屏按分类各 10 个，
+                两个动作都在一屏内。 */}
+            <Link
+              href="/add"
+              title="添加订阅"
+              aria-label="添加订阅"
+              className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-[#e8e8e8] dark:hover:bg-[#252525]"
+            >
+              <Plus className="h-3.5 w-3.5 text-[#666] dark:text-[#aaa]" />
             </Link>
           </div>
         )}

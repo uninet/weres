@@ -30,6 +30,7 @@
 
 **订阅**
 - 添加任意 RSS / Atom 源，管理分组
+- **添加订阅页 `/add`**：上半屏粘一个 RSS 链接直接订，下半屏按分类浏览市场源（每组 10 个，「更多」展开该组全部）；订阅与取消订阅都有结果提示，按钮状态即时翻转
 - 内置 RSS 市场：收录 890+ 个中文源（技术 / 新闻 / 博客 / 商业 / 生活 / 科学 / 视频），支持搜索与分类筛选，一键订阅
 - 源图标缺失时用**本地生成**的首字 SVG 兜底，不请求 dicebear 等第三方服务——断网、内网部署都不会裂图
 - 手动同步单个源或全部源
@@ -246,7 +247,7 @@ SMTP_FROM="you@qq.com"
 .
 ├── app/
 │   ├── (auth)/                # 登录 / 注册 / 忘记密码 / 重置密码（共用 components/auth-shell.tsx）
-│   ├── (main)/                # 需登录的主应用（reader / market / subscriptions / ...）
+│   ├── (main)/                # 需登录的主应用（reader / market / add / subscriptions / ...）
 │   ├── terms/                 # 使用条款与隐私说明（公开页，注册页链接指向它）
 │   ├── page.tsx               # 首页：未登录看介绍，已登录直接进阅读器
 │   ├── icon.svg               # favicon（Next 文件约定自动注入）
@@ -267,6 +268,7 @@ SMTP_FROM="you@qq.com"
 │   ├── not-found.tsx          # 全局 404
 │   └── error.tsx              # 全局错误边界
 ├── components/                # UI 组件（含 reader/ 阅读器、ui/ shadcn）
+│   ├── add-feed/feed-row.tsx  # 添加订阅页的单行（图标 + 标题 + 订阅/已订阅按钮）
 │   ├── page-shell.tsx         # 次级页面统一外壳（等高顶栏 + 返回 + 限宽内容区）
 │   ├── auth-shell.tsx         # 四个认证页统一外壳（品牌区 + 卡片）
 │   └── bottom-nav.tsx         # 移动端常驻底部导航（读 lib/navigation.ts）
@@ -277,6 +279,7 @@ SMTP_FROM="you@qq.com"
 │   ├── sanitize.ts            # RSS 正文 HTML 白名单净化
 │   ├── rss-parser.ts          # RSS 抓取与解析
 │   ├── feed-icon.ts           # 本地生成首字 SVG 图标（不依赖第三方服务）
+│   ├── market.ts              # 市场数据唯一来源（扁平 / 按分类两种切法共用）
 │   ├── prisma.ts              # Prisma 客户端单例
 │   └── rate-limit.ts          # 登录/注册限流
 ├── prisma/
@@ -322,7 +325,7 @@ SMTP_FROM="you@qq.com"
 | GET | `/api/history` | 阅读历史 |
 | GET | `/api/notifications` | 通知列表 |
 | POST | `/api/cron/digest` | 发送每日摘要邮件（需 `CRON_SECRET`） |
-| GET | `/api/market` | RSS 市场源列表 |
+| GET | `/api/market` | RSS 市场源列表（默认扁平返回全部；加 `?grouped=1` 按分类返回，可带 `category` 与 `perGroup`，首屏从 483KB 压到 24KB） |
 | GET | `/api/kindle/push` | 读取推送状态与最近投递记录 |
 | POST | `/api/kindle/push` | 把一篇文章推到 Kindle |
 | GET/PATCH | `/api/profile` | 读写个人资料（含 Kindle 邮箱） |

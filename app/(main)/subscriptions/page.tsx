@@ -252,7 +252,7 @@ export default function SubscriptionsPage() {
       icon={Layers}
       iconClassName="bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15 dark:text-emerald-400"
       actions={
-        <Link href="/market">
+        <Link href="/add">
           <Button size="sm">
             <Plus className="h-4 w-4 mr-1" />
             添加
@@ -529,12 +529,17 @@ export default function SubscriptionsPage() {
                   {searchQuery ? "没有找到匹配的订阅" : "您还没有订阅任何 RSS 源"}
                 </p>
                 {!searchQuery && (
-                  <Link href="/market">
-                    <Button>
-                      <Plus className="h-4 w-4 mr-2" />
-                      去添加订阅
-                    </Button>
-                  </Link>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Link href="/add">
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        去添加订阅
+                      </Button>
+                    </Link>
+                    <Link href="/market">
+                      <Button variant="outline">逛逛 RSS 市场</Button>
+                    </Link>
+                  </div>
                 )}
               </div>
             )}

@@ -1068,6 +1068,141 @@ async function main() {
       ap.url().replace(BASE, "")
     );
     await ap.close();
+
+    // ---------------- AA. 添加订阅页 ----------------
+    //
+    // 这一组的每一条都对应一个「很容易写成永远绿」的断言，所以：
+    //   - AA-01 断言的是「分组数 ≥ 3 且每组都有行」，不是「页面有 section」
+    //   - AA-02 量的是「技术」组从 10 行变成 ≥ 11 行，不是「按钮点了没报错」
+    //   - AA-03 走真实点击，断言 toast 文案里带源名，不是「toast 元素存在」
+    //   - AA-04 断言按钮文案在订阅/已订阅之间真的翻转，且第二次点回原状
+    const addPage = await ctx.newPage();
+    await addPage.goto(`${BASE}/add`, { waitUntil: "networkidle" });
+    await addPage.waitForTimeout(3000);
+
+    const groupSel = "main section:has(h2)";
+    const groupSnapshot = await addPage.evaluate((sel) =>
+      [...document.querySelectorAll(sel)].map((section) => ({
+        title: section.querySelector("h2")?.textContent?.trim() ?? "",
+        total: Number(
+          (section.querySelector("h2 + span")?.textContent ?? "").replace(/[^0-9]/g, "")
+        ),
+        rows: section.querySelectorAll("div.divide-y > div").length,
+        hasMore: Boolean(section.querySelector('button[aria-expanded="false"]')),
+      })),
+      groupSel
+    );
+
+    // AA-01：每组最多 10 条，只有总量大于 10 的组才给「更多」
+    const previewOk =
+      groupSnapshot.length >= 3 &&
+      groupSnapshot.every((g) => g.rows > 0 && g.rows <= 10) &&
+      groupSnapshot.every((g) => g.hasMore === g.total > g.rows);
+    record(
+      "AA-01",
+      "分组预览每组 ≤10 条，「更多」只在有剩余时出现",
+      previewOk,
+      groupSnapshot.length
+        ? groupSnapshot.map((g) => `${g.title} ${g.rows}/${g.total}${g.hasMore ? "+" : ""}`).join(" · ")
+        : "没有识别到分组"
+    );
+
+    // AA-02：点「更多」展开该组全部
+    const firstMore = addPage.locator(`${groupSel} button[aria-expanded="false"]`).first();
+    const moreExists = (await firstMore.count()) > 0;
+    let expandOk = false;
+    let expandDetail = "没有可展开的组";
+    if (moreExists) {
+      const before = await addPage.evaluate(
+        (sel) => document.querySelector(sel)?.querySelectorAll("div.divide-y > div").length ?? 0,
+        groupSel
+      );
+      await firstMore.click();
+      await addPage.waitForTimeout(3500);
+      const after = await addPage.evaluate(
+        (sel) => {
+          const section = document.querySelector(sel);
+          return {
+            rows: section?.querySelectorAll("div.divide-y > div").length ?? 0,
+            expanded:
+              section?.querySelector('button[aria-expanded="true"]')?.getAttribute("aria-expanded") ?? null,
+            btnText: section?.querySelector("button")?.textContent?.trim() ?? "",
+          };
+        },
+        groupSel
+      );
+      expandOk = after.rows > before && after.expanded === "true";
+      expandDetail = `${before} → ${after.rows} 条，按钮「${after.btnText}」`;
+      // 折回预览态，不影响后续用例的滚动位置与耗时。
+      // 必须先查存在再点：如果「更多」本身是坏的，这里就没有
+      // aria-expanded="true" 的按钮，直接 click 会抛 TimeoutError
+      // 把整个脚本中断 —— 一条断言失败不该让后面的用例都不跑。
+      const collapseBtn = addPage.locator(`${groupSel} button[aria-expanded="true"]`).first();
+      if ((await collapseBtn.count()) > 0) {
+        await collapseBtn.click({ timeout: 5000 }).catch(() => {});
+        await addPage.waitForTimeout(900);
+      }
+    }
+    record("AA-02", "「更多」展开该组全部，按钮变「收起」", expandOk, expandDetail);
+
+    // AA-03 / AA-04：订阅与取消订阅的文案翻转 + toast 带源名
+    const rowSel = `${groupSel} div.divide-y > div`;
+    const subRow = addPage.locator(rowSel).first();
+    const rowTitle = (await subRow.locator("span.font-medium, div.font-medium, p").first().textContent().catch(() => "")) || "";
+    const btnBefore = ((await subRow.locator("button").first().textContent()) || "").trim();
+    const wasSubscribed = btnBefore.includes("已订阅");
+
+    const toastText = async () =>
+      addPage.evaluate(() => {
+        const nodes = [...document.querySelectorAll("[data-sonner-toast]")];
+        return nodes.map((n) => n.textContent?.trim() ?? "").join(" | ");
+      });
+
+    // 第一次点击：从当前状态翻到对面
+    await subRow.locator("button").first().click();
+    await addPage.waitForTimeout(3200);
+    const btnAfter = ((await subRow.locator("button").first().textContent()) || "").trim();
+    const toastAfter = await toastText();
+    const flipped = wasSubscribed ? !btnAfter.includes("已订阅") : btnAfter.includes("已订阅");
+    record(
+      "AA-03",
+      "订阅/取消订阅后按钮状态翻转且有成功提示",
+      flipped && toastAfter.length > 0,
+      `${wasSubscribed ? "已订阅→订阅" : "订阅→已订阅"}，toast「${toastAfter.slice(0, 30)}」`
+    );
+
+    // 第二次点击：翻回原状 —— 证明两个方向都真的通到后端
+    await subRow.locator("button").first().click();
+    await addPage.waitForTimeout(3200);
+    const btnBack = ((await subRow.locator("button").first().textContent()) || "").trim();
+    record(
+      "AA-04",
+      "再次点击可翻回原状态（两个方向都打到后端）",
+      btnBack === btnBefore,
+      `${btnAfter} → ${btnBack}${rowTitle ? `（${rowTitle.slice(0, 12)}）` : ""}`
+    );
+
+    // AA-05：自定义链接的即时校验 —— 故意填一段非 URL
+    await addPage.fill("#feed-url", "not-a-url");
+    await addPage.click('main section:first-of-type button:has-text("订阅")');
+    await addPage.waitForTimeout(900);
+    const urlError = await addPage.evaluate(() => {
+      const el = document.getElementById("feed-url-error");
+      const input = document.getElementById("feed-url");
+      return {
+        text: el?.textContent?.trim() ?? "",
+        invalid: input?.getAttribute("aria-invalid") ?? "",
+      };
+    });
+    record(
+      "AA-05",
+      "非法链接就地报错，不发起请求",
+      /http/.test(urlError.text) && urlError.invalid === "true",
+      urlError.text || "没有错误提示"
+    );
+    await addPage.fill("#feed-url", "");
+
+    await addPage.close();
   }
 
   // 恢复默认，避免影响下次运行
