@@ -7,6 +7,7 @@ import { test, expect } from '@playwright/test';
 import groupSchema from '../../schemas/group.schema.json';
 import feedSchema from '../../schemas/feed.schema.json';
 import { validate } from 'jsonschema';
+import { extractTokenFromResponse } from '../shared/auth';
 
 const BASE_URL = 'http://localhost:3000/api';
 
@@ -35,7 +36,8 @@ test.beforeAll(async ({ request }) => {
   });
 
   const loginBody = await loginResponse.json();
-  authToken = loginBody.data.token;
+  // 令牌在 HttpOnly Cookie 里，不在响应体（见 tests/contract/shared/auth.ts）
+  authToken = extractTokenFromResponse(loginResponse);
 });
 
 /**
@@ -138,7 +140,9 @@ test('TC-ACT-033: Create Group - Missing Name', async ({ request }) => {
 
   const body = await response.json();
   expect(body).toHaveProperty('success', false);
-  expect(body).toHaveProperty('error');
+  // 错误信息在 message 里，不是 error（app/api/groups/route.ts:158 起）。
+  expect(body).toHaveProperty('message');
+  expect(typeof body.message).toBe('string');
 
   console.log('✅ TC-ACT-033 PASSED: Missing required field rejected correctly');
 });
@@ -221,7 +225,12 @@ test('TC-ACT-036: Delete Group', async ({ request }) => {
   const groupId = createBody.data.id;
 
   // Act - Delete the group
-  const response = await request.delete(`${BASE_URL}/groups/${groupId}`, {
+  //
+  // 删除接口是 `DELETE /api/groups?id=xxx`（app/api/groups/route.ts:288），
+  // 不是 REST 风格的 `/api/groups/:id`。后者在 Next 里根本没有对应路由，
+  // 会落到 app/not-found.tsx 返回一整页 HTML + 404 —— 于是 `response.json()`
+  // 抛 `Unexpected token '<'`，看起来像接口坏了，其实是路径写错。
+  const response = await request.delete(`${BASE_URL}/groups?id=${groupId}`, {
     headers: {
       'Authorization': `Bearer ${authToken}`
     }
@@ -253,7 +262,7 @@ test('TC-ACT-036: Delete Group', async ({ request }) => {
  */
 test('TC-ACT-037: Delete Group - Invalid ID', async ({ request }) => {
   // Act
-  const response = await request.delete(`${BASE_URL}/groups/non-existent-id`, {
+  const response = await request.delete(`${BASE_URL}/groups?id=non-existent-id`, {
     headers: {
       'Authorization': `Bearer ${authToken}`
     }

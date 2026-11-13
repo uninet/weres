@@ -55,11 +55,30 @@ export async function GET(
     // 不要把内部关联字段透出去
     const { subscriptions: _ignored, ...feed } = article.feed;
 
+    // 当前用户对这篇文章的两个状态。
+    //
+    // 列表接口（/api/articles）会算这两个字段，详情接口原来直接吐 Prisma 行，
+    // 于是 `?articleId=` 深链进来的文章、收藏页/历史页点开的文章，
+    // 阅读器的收藏按钮永远显示「未收藏」（读 `selectedArticle?.isFavorited`），
+    // 明明收藏过也显示成没收藏 —— 看起来像收藏丢了。
+    const [readHistory, favorite] = await Promise.all([
+      prisma.readHistory.findUnique({
+        where: { userId_articleId: { userId: user.id, articleId: article.id } },
+        select: { id: true },
+      }),
+      prisma.favorite.findUnique({
+        where: { userId_articleId: { userId: user.id, articleId: article.id } },
+        select: { id: true },
+      }),
+    ]);
+
     return NextResponse.json({
       success: true,
       data: {
         ...article,
         feed,
+        isRead: Boolean(readHistory),
+        isFavorited: Boolean(favorite),
         // 正文来自第三方站点，必须净化后再交给前端
         // dangerouslySetInnerHTML 渲染，否则可被注入任意脚本。
         // 先净化再剥重复标题：净化会拆掉原文的包裹层，

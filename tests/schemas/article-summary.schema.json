@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Article Summary Schema",
+  "description": "收藏 / 历史列表里内嵌的精简文章对象（app/api/favorites/route.ts:72-88 的 select 结果）。与 article.schema.json 的差别是没有 isRead / isFavorited —— 这两个字段是「当前用户对这篇文章的状态」，属于 /api/articles 列表接口的语义，收藏列表里 isFavorited 恒为 true（能出现在这里就是收藏了），isRead 需要额外 join 才有。「同一个概念两种形状」是本项目已知的包络漂移，这里如实记录而不是逼接口加字段。",
+  "type": "object",
+  "required": ["id", "title", "link", "pubDate"],
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "description": { "type": "string" },
+    "link": { "type": "string", "format": "uri" },
+    "pubDate": { "type": "string", "format": "date-time" },
+    "imageUrl": { "type": ["string", "null"] },
+    "author": { "type": ["string", "null"] },
+    "feed": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "icon": { "type": ["string", "null"] }
+      },
+      "required": ["id", "title"]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,40 +1,34 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Group Schema",
-  "description": "Schema for feed grouping objects",
+  "description": "订阅分组对象（app/api/groups/route.ts 返回的形状）",
   "type": "object",
   "required": ["id", "name", "createdAt"],
   "properties": {
-    "id": {
-      "type": "string",
-      "description": "Unique group identifier"
-    },
+    "id": { "type": "string", "description": "分组唯一标识" },
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 100,
-      "description": "Group display name"
+      "description": "分组名"
     },
-    "description": {
-      "type": "string",
-      "maxLength": 500,
-      "description": "Group description"
-    },
-    "createdAt": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Group creation timestamp"
-    },
-    "updatedAt": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Last update timestamp"
-    },
-    "feeds": {
+    "userId": { "type": "string", "description": "所属用户（分组是租户数据）" },
+    "sortOrder": { "type": "integer", "description": "排序位" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "subscriptions": {
       "type": "array",
-      "description": "Feeds in this group",
+      "description": "该分组下的订阅关系（不是 feeds —— 订阅带 isNotify/unreadCount，比裸 feed 信息多）",
       "items": {
-        "$ref": "feed.schema.json"
+        "type": "object",
+        "required": ["id", "feedId"],
+        "properties": {
+          "id": { "type": "string" },
+          "feedId": { "type": "string" },
+          "groupId": { "type": ["string", "null"] },
+          "isNotify": { "type": "boolean" },
+          "unreadCount": { "type": "integer", "minimum": 0 },
+          "feed": { "type": "object" }
+        }
       }
     }
   },

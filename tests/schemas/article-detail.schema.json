@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Article Detail Schema",
+  "description": "单篇文章详情（GET /api/articles/[id]）。比列表项多 content / guid / feedId / createdAt，且现在也带上 isRead / isFavorited —— 少这两个字段时，通过 ?articleId= 深链打开的文档，收藏按钮永远显示未收藏。",
+  "type": "object",
+  "required": ["id", "title", "link", "pubDate", "content", "isRead", "isFavorited"],
+  "properties": {
+    "id": { "type": "string" },
+    "feedId": { "type": "string" },
+    "guid": { "type": ["string", "null"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "link": { "type": "string", "format": "uri" },
+    "description": { "type": ["string", "null"] },
+    "content": { "type": "string", "description": "已净化的正文 HTML" },
+    "author": { "type": ["string", "null"] },
+    "pubDate": { "type": "string", "format": "date-time" },
+    "imageUrl": { "type": ["string", "null"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "isRead": { "type": "boolean" },
+    "isFavorited": { "type": "boolean" },
+    "feed": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "icon": { "type": ["string", "null"] }
+      },
+      "required": ["id", "title"]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserFromRequest } from "@/lib/auth";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -13,7 +13,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserFromRequest(req);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "未登录" },
@@ -134,7 +134,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserFromRequest(req);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "未登录" },
@@ -224,7 +224,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserFromRequest(req);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "未登录" },

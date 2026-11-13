@@ -205,7 +205,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    await prisma.favorite.deleteMany({
+    const result = await prisma.favorite.deleteMany({
       where: {
         userId: user.id,
         id: {
@@ -214,8 +214,11 @@ export async function DELETE(req: Request) {
       },
     });
 
+    // 用 result.count 而不是 ids.length：
+    // where 里有 userId 过滤，传别人的收藏 id 会匹配 0 条，
+    // 用 ids.length 会报「已删除 1 个」而实际一条都没删 —— 用户以为删掉了。
     return NextResponse.json({
-      message: `已删除 ${ids.length} 个收藏`,
+      message: `已删除 ${result.count} 个收藏`,
     });
   } catch (error) {
     console.error("Delete favorites error:", error);

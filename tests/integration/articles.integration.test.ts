@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { requireTokenFromSetCookie } from '../shared/auth-token';
 
 describe('文章已读状态集成测试', () => {
   let testUser: any;
@@ -66,8 +67,10 @@ describe('文章已读状态集成测试', () => {
         password: 'test123456',
       }),
     });
-    const loginData = await loginRes.json();
-    authToken = loginData.data?.token || '';
+    // 令牌在 HttpOnly Cookie 里，不在响应体。
+    // 原来写 `loginData.data?.token` 永远是 undefined，
+    // 于是后面每个请求都带着 `Cookie: token=` 空值 → 401。
+    authToken = requireTokenFromSetCookie(loginRes.headers.get('set-cookie'));
   });
 
   afterAll(async () => {
@@ -276,10 +279,75 @@ describe('文章已读状态集成测试', () => {
 });
 
 describe('文章列表API集成测试', () => {
+  // 这一组原来写死 `Cookie: token=test-token` —— 那不是任何真实令牌，
+  // 三个用例都稳定 401。`expect(res.status).toBe(200)` 从未通过过，
+  // 等于这一组从来没验证过任何东西。
+  //
+  // 不能复用上一组：上一组的 afterAll 会删掉自己的用户，
+  // 而 vitest 按声明顺序执行 describe，轮到这一组时账号已经不存在了。
+  // 所以这一组自建一套独立数据。
+  let listToken = '';
+  let listUserId = '';
+  let listFeedId = '';
+
+  beforeAll(async () => {
+    const hashed = await bcrypt.hash('test123456', 10);
+    const user = await prisma.user.create({
+      data: {
+        email: `integration-list-${Date.now()}@example.com`,
+        nickname: '列表集成测试',
+        passwordHash: hashed,
+        status: 'ACTIVE',
+      },
+    });
+    listUserId = user.id;
+
+    const feed = await prisma.feed.create({
+      data: {
+        url: `https://test-feed-list-${Date.now()}.example.com/rss`,
+        title: '列表测试RSS源',
+        category: 'TECH',
+        language: 'zh-CN',
+      },
+    });
+    listFeedId = feed.id;
+
+    await prisma.subscription.create({
+      data: { userId: listUserId, feedId: listFeedId, isNotify: false },
+    });
+
+    await prisma.article.create({
+      data: {
+        feedId: listFeedId,
+        title: '列表集成测试文章',
+        description: '用于验证列表接口的文章',
+        content: '<p>内容</p>',
+        link: `https://test-list-${Date.now()}.example.com/a/1`,
+        pubDate: new Date(),
+        guid: `list-${Date.now()}`,
+      },
+    });
+
+    const loginRes = await fetch('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email, password: 'test123456' }),
+    });
+    listToken = requireTokenFromSetCookie(loginRes.headers.get('set-cookie'));
+  });
+
+  afterAll(async () => {
+    await prisma.favorite.deleteMany({ where: { userId: listUserId } });
+    await prisma.readHistory.deleteMany({ where: { userId: listUserId } });
+    await prisma.subscription.deleteMany({ where: { userId: listUserId } });
+    await prisma.article.deleteMany({ where: { feedId: listFeedId } });
+    if (listFeedId) await prisma.feed.delete({ where: { id: listFeedId } });
+    if (listUserId) await prisma.user.delete({ where: { id: listUserId } });
+  });
   it('应该返回包含已读状态的文章列表', async () => {
     const res = await fetch('http://localhost:3000/api/articles', {
       headers: {
-        Cookie: `token=test-token`,
+        Cookie: `token=${listToken}`,
       },
     });
     const data = await res.json();
@@ -300,7 +368,7 @@ describe('文章列表API集成测试', () => {
   it('应该支持按已读状态过滤文章', async () => {
     const res = await fetch('http://localhost:3000/api/articles?status=unread', {
       headers: {
-        Cookie: `token=test-token`,
+        Cookie: `token=${listToken}`,
       },
     });
     const data = await res.json();
@@ -313,7 +381,7 @@ describe('文章列表API集成测试', () => {
   it('应该支持按收藏状态过滤文章', async () => {
     const res = await fetch('http://localhost:3000/api/articles?favorite=true', {
       headers: {
-        Cookie: `token=test-token`,
+        Cookie: `token=${listToken}`,
       },
     });
     const data = await res.json();

@@ -1,48 +1,36 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Feed Schema",
-  "description": "Schema for RSS feed subscription objects",
+  "description": "RSS 源对象（prisma Feed 模型 + 未读计数）",
   "type": "object",
   "required": ["id", "title", "url"],
   "properties": {
-    "id": {
-      "type": "string",
-      "description": "Unique feed identifier"
-    },
+    "id": { "type": "string", "description": "源唯一标识" },
     "title": {
       "type": "string",
       "minLength": 1,
       "maxLength": 200,
-      "description": "Feed title"
+      "description": "源标题"
     },
-    "url": {
+    "url": { "type": "string", "format": "uri", "description": "RSS 地址" },
+    "description": { "type": ["string", "null"], "description": "源简介" },
+    "icon": { "type": ["string", "null"], "description": "favicon 地址" },
+    "category": { "type": ["string", "null"], "description": "分类" },
+    "language": { "type": ["string", "null"], "description": "语言" },
+    "isActive": { "type": "boolean", "description": "是否参与同步" },
+    "syncStatus": {
       "type": "string",
-      "format": "uri",
-      "description": "RSS feed URL"
-    },
-    "description": {
-      "type": "string",
-      "description": "Feed description"
-    },
-    "icon": {
-      "type": "string",
-      "format": "uri",
-      "description": "Feed icon URL"
+      "description": "同步状态：IDLE / SYNCING / SUCCESS / FAILED"
     },
     "lastSyncAt": {
       "type": ["string", "null"],
       "format": "date-time",
-      "description": "Last synchronization timestamp"
+      "description": "上次同步时间"
     },
-    "unreadCount": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Number of unread articles"
-    },
-    "groupId": {
-      "type": ["string", "null"],
-      "description": "Group ID if feed is grouped"
-    }
+    "lastError": { "type": ["string", "null"], "description": "上次同步错误" },
+    "errorCount": { "type": "integer", "minimum": 0, "description": "连续失败次数" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
   },
   "additionalProperties": false
 }

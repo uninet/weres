@@ -213,8 +213,14 @@ test('TC-ACT-005: User Login - Valid Credentials', async ({ request }) => {
  */
 test('TC-ACT-006: User Login - Invalid Credentials', async ({ request }) => {
   // Arrange
+  // 用每次运行都不同的邮箱，而不是写死的 'nonexistent@werss.com'。
+  //
+  // 登录限流有一层是「按 IP + 邮箱」5 次/15 分钟 —— 写死邮箱意味着
+  // 同一个计数器被每一次测试运行共享：第 5 轮之后这个地址就返回 429 了，
+  // 用例断言的是 401，于是从第 6 轮开始无条件变红，而产品完全正常。
+  // 语义不变（依然是一个不存在的账号），只是把计数器隔离开。
   const loginData = {
-    email: 'nonexistent@werss.com',
+    email: `nonexistent-${Date.now()}@werss.com`,
     password: 'WrongPassword123'
   };
 

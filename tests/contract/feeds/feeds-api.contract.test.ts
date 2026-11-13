@@ -1,19 +1,31 @@
 /**
- * API Contract Tests for Feeds
- * Verifies that feeds API endpoints conform to OpenAPI specification
+ * API Contract Tests for Feeds / Subscriptions
+ *
+ * 这组用例原先 7/8 全红，根本原因是整套断言指向一个不存在的端点：
+ * 它们打 `GET/POST /api/feeds`、`DELETE /api/feeds/:id`，
+ * 而项目里只有 `/api/feeds/subscriptions`、`/api/feeds/subscriptions/[id]`、
+ * `/api/feeds/validate` 三个路由。`/api/feeds` 在 Next 里没有对应 route.ts，
+ * 请求会落进 `app/not-found.tsx` 返回整页 HTML + 404，于是
+ * `response.json()` 抛 `Unexpected token '<'`，看起来像接口崩了。
+ *
+ * 这里按真实路由重写，断言也按真实响应形状写。
  */
 
 import { test, expect } from '@playwright/test';
 import feedSchema from '../../schemas/feed.schema.json';
 import { validate } from 'jsonschema';
+import { extractTokenFromResponse } from '../shared/auth';
 
 const BASE_URL = 'http://localhost:3000/api';
 
 let authToken: string;
 let testFeedId: string;
+let testSubscriptionId: string;
+
+// 共用同一个用户与同一个订阅，并发会互相踩（同 favorites 组）。
+test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async ({ request }) => {
-  // Setup: Register and login
   const registerData = {
     email: `feed-test-${Date.now()}@werss.com`,
     password: 'Test@123456',
@@ -26,15 +38,12 @@ test.beforeAll(async ({ request }) => {
   });
 
   const loginResponse = await request.post(`${BASE_URL}/auth/login`, {
-    data: {
-      email: registerData.email,
-      password: registerData.password
-    },
+    data: { email: registerData.email, password: registerData.password },
     headers: { 'Content-Type': 'application/json' }
   });
 
-  const loginBody = await loginResponse.json();
-  authToken = loginBody.data.token;
+  // 令牌在 HttpOnly Cookie 里，不在响应体（见 tests/contract/shared/auth.ts）
+  authToken = extractTokenFromResponse(loginResponse);
 });
 
 /**
@@ -42,32 +51,57 @@ test.beforeAll(async ({ request }) => {
  * Priority: P0
  */
 test('TC-ACT-021: Get Feeds List', async ({ request }) => {
-  // Act
-  const response = await request.get(`${BASE_URL}/feeds`, {
+  // 先订阅一个源，否则列表恒空，schema 断言无从谈起
+  await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    data: { url: 'https://sspai.com/feed' },
     headers: {
-      'Authorization': `Bearer ${authToken}`
+      'Authorization': `Bearer ${authToken}`,
+      'Content-Type': 'application/json'
     }
   });
 
-  // Assert
+  const response = await request.get(`${BASE_URL}/feeds/subscriptions`, {
+    headers: { 'Authorization': `Bearer ${authToken}` }
+  });
+
   expect(response.status()).toBe(200);
 
   const body = await response.json();
   expect(body).toHaveProperty('success', true);
   expect(body).toHaveProperty('data');
 
-  // Validate feeds is an array
-  const feeds = body.data;
-  expect(Array.isArray(feeds)).toBe(true);
+  // 注意形状：data 是「按分组聚合的 dict」，不是 list。
+  // 早期契约表写 `expect(Array.isArray(body.data)).toBe(true)`，
+  // 是照着 OpenAPI 文档想象的，和实现不一致。
+  expect(Array.isArray(body.data)).toBe(false);
+  expect(body.data).toHaveProperty('groups');
 
-  // Validate each feed against schema if array not empty
-  if (feeds.length > 0) {
-    const validationResult = validate(feeds[0], feedSchema);
-    expect(validationResult.valid, validationResult.errors?.map(e => e.message).join(', ')).toBe(true);
-    testFeedId = feeds[0].id; // Save for deletion test
-  }
+  const groups = body.data.groups;
+  const groupKeys = Object.keys(groups);
+  expect(groupKeys.length).toBeGreaterThan(0);
 
-  console.log(`✅ TC-ACT-021 PASSED: Feeds list contract validated (found ${feeds.length} feeds)`);
+  const first = groups[groupKeys[0]];
+  expect(first).toHaveProperty('group');
+  expect(Array.isArray(first.subscriptions)).toBe(true);
+  expect(first.subscriptions.length).toBeGreaterThan(0);
+
+  const subscription = first.subscriptions[0];
+  testFeedId = subscription.feed.id;
+  testSubscriptionId = subscription.id;
+
+  // 订阅项的形状：订阅关系 + feed 实体
+  expect(subscription).toHaveProperty('id');
+  expect(subscription).toHaveProperty('feedId');
+  expect(subscription).toHaveProperty('isNotify');
+  expect(subscription).toHaveProperty('unreadCount');
+
+  const validationResult = validate(subscription.feed, feedSchema);
+  expect(
+    validationResult.valid,
+    validationResult.errors?.map((e) => e.message).join(', ')
+  ).toBe(true);
+
+  console.log(`✅ TC-ACT-021 PASSED: Feeds list contract validated (${groupKeys.length} groups)`);
 });
 
 /**
@@ -75,50 +109,38 @@ test('TC-ACT-021: Get Feeds List', async ({ request }) => {
  * Priority: P0
  */
 test('TC-ACT-022: Subscribe to Feed - Valid RSS URL', async ({ request }) => {
-  // Arrange - Use a known valid RSS feed
-  const newFeed = {
-    url: 'https://36kr.com/feed',
-    groupId: null
-  };
-
-  // Act
-  const response = await request.post(`${BASE_URL}/feeds`, {
-    data: newFeed,
+  const response = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    // 36kr 的 /feed 现在返回无法解析的内容（实测 "Feed not recognized as RSS 1 or 2"），
+    // 换一个实测可用的源。注意：这条用例断言的是「订阅成功后的形状」，
+    // 不是「某个站点的可用性」—— 用会挂的第三方地址等于把契约测试绑在别人的运维上。
+    data: { url: 'https://www.geekpark.net/rss' },
     headers: {
       'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     }
   });
 
-  // Assert
-  expect(response.status()).toBeGreaterThanOrEqual(200);
-  expect(response.status()).toBeLessThan(300);
+  expect(response.status()).toBe(200);
 
   const body = await response.json();
+  expect(body).toHaveProperty('success', true);
+  expect(body).toHaveProperty('data');
+  expect(body.data).toHaveProperty('subscription');
 
-  if (response.status() === 200) {
-    expect(body).toHaveProperty('success', true);
-    expect(body).toHaveProperty('data');
+  const subscription = body.data.subscription;
+  expect(subscription.feed).toBeDefined();
+  expect(subscription.feed.url).toBe('https://www.geekpark.net/rss');
+  expect(subscription.feed.id).toBeDefined();
+  expect(subscription.feed.title).toBeDefined();
 
-    // Validate feed schema
-    const validationResult = validate(body.data, feedSchema);
-    expect(validationResult.valid, validationResult.errors?.map(e => e.message).join(', ')).toBe(true);
+  // 订阅记录必须挂到某个分组下 —— 否则阅读器左栏（只列「分组下的订阅」）
+  // 永远看不到它，用户会以为订阅没成功。
+  expect(subscription.groupId).toBeTruthy();
 
-    // Verify feed properties
-    expect(body.data.url).toBe(newFeed.url);
-    expect(body.data.id).toBeDefined();
-    expect(typeof body.data.id).toBe('string');
-    expect(body.data.title).toBeDefined();
+  testSubscriptionId = subscription.id;
+  testFeedId = subscription.feed.id;
 
-    testFeedId = body.data.id; // Save for deletion test
-
-    console.log('✅ TC-ACT-022 PASSED: Feed subscription contract validated');
-  } else {
-    // RSS validation might fail, but response should still be structured correctly
-    expect(body).toHaveProperty('success', false);
-    expect(body).toHaveProperty('error');
-    console.log('✅ TC-ACT-022 PASSED: Invalid RSS URL rejected with proper error');
-  }
+  console.log('✅ TC-ACT-022 PASSED: Feed subscription contract validated');
 });
 
 /**
@@ -126,58 +148,43 @@ test('TC-ACT-022: Subscribe to Feed - Valid RSS URL', async ({ request }) => {
  * Priority: P0
  */
 test('TC-ACT-023: Subscribe to Feed - Invalid URL', async ({ request }) => {
-  // Arrange - Invalid URL format
-  const invalidFeed = {
-    url: 'not-a-valid-url',
-    groupId: null
-  };
-
-  // Act
-  const response = await request.post(`${BASE_URL}/feeds`, {
-    data: invalidFeed,
+  const response = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    data: { url: 'not-a-url' },
     headers: {
       'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     }
   });
 
-  // Assert - Should reject invalid URL
-  expect(response.status()).toBeGreaterThanOrEqual(400);
-  expect(response.status()).toBeLessThan(500);
-
-  const body = await response.json();
-  expect(body).toHaveProperty('success', false);
-  expect(body).toHaveProperty('error');
-
-  console.log('✅ TC-ACT-023 PASSED: Invalid URL rejected correctly');
-});
-
-/**
- * TC-ACT-024: Subscribe to Feed - Missing URL
- * Priority: P0
- */
-test('TC-ACT-024: Subscribe to Feed - Missing URL', async ({ request }) => {
-  // Arrange - Missing required URL field
-  const incompleteFeed = {
-    groupId: null
-  };
-
-  // Act
-  const response = await request.post(`${BASE_URL}/feeds`, {
-    data: incompleteFeed,
-    headers: {
-      'Authorization': `Bearer ${authToken}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
-  // Assert - Should reject missing required field
+  // zod 的 z.string().url() 拦住 → 400
   expect(response.status()).toBe(400);
 
   const body = await response.json();
   expect(body).toHaveProperty('success', false);
+  // 错误体是 { success, message }，没有 error 字段
+  expect(body.message).toBeTruthy();
 
-  console.log('✅ TC-ACT-024 PASSED: Missing required field rejected correctly');
+  console.log('✅ TC-ACT-023 PASSED: Invalid URL rejected');
+});
+
+/**
+ * TC-ACT-024: Subscribe to Feed - Missing URL
+ * Priority: P1
+ */
+test('TC-ACT-024: Subscribe to Feed - Missing URL', async ({ request }) => {
+  const response = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    data: {},
+    headers: {
+      'Authorization': `Bearer ${authToken}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  expect(response.status()).toBe(400);
+  const body = await response.json();
+  expect(body).toHaveProperty('success', false);
+
+  console.log('✅ TC-ACT-024 PASSED: Missing URL rejected');
 });
 
 /**
@@ -185,118 +192,91 @@ test('TC-ACT-024: Subscribe to Feed - Missing URL', async ({ request }) => {
  * Priority: P1
  */
 test('TC-ACT-025: Subscribe to Feed - With Group', async ({ request }) => {
-  // Arrange - First create a group
   const groupResponse = await request.post(`${BASE_URL}/groups`, {
-    data: { name: 'Test Group' },
+    data: { name: `契约测试分组-${Date.now()}` },
     headers: {
       'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     }
   });
 
+  expect(groupResponse.status()).toBe(200);
   const groupBody = await groupResponse.json();
   const groupId = groupBody.data.id;
+  expect(groupId).toBeTruthy();
 
-  const newFeed = {
-    url: 'https://sspai.com/feed',
-    groupId: groupId
-  };
-
-  // Act
-  const response = await request.post(`${BASE_URL}/feeds`, {
-    data: newFeed,
+  const response = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    // groupId 必须是了 string（schema 是 z.string().optional()），
+    // 传 null 会 zod 失败 → 400「输入数据无效」。
+    data: { url: 'https://www.solidot.org/index.rss', groupId },
     headers: {
       'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     }
   });
 
-  // Assert
-  if (response.status() === 200) {
-    const body = await response.json();
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body.data.subscription.groupId).toBe(groupId);
 
-    // Validate feed schema
-    const validationResult = validate(body.data, feedSchema);
-    expect(validationResult.valid, validationResult.errors?.map(e => e.message).join(', ')).toBe(true);
-
-    // Verify group assignment
-    expect(body.data.groupId).toBe(groupId);
-
-    console.log('✅ TC-ACT-025 PASSED: Feed with group contract validated');
-  } else {
-    console.log('⏸️ TC-ACT-025 SKIPPED: RSS validation failed');
-  }
+  console.log('✅ TC-ACT-025 PASSED: Subscription placed in requested group');
 });
 
 /**
- * TC-ACT-026: Delete Feed
+ * TC-ACT-026: Delete Subscription
  * Priority: P0
  */
-test('TC-ACT-026: Delete Feed', async ({ request }) => {
-  // Arrange - First subscribe to a feed
-  const subscribeResponse = await request.post(`${BASE_URL}/feeds`, {
-    data: { url: 'https://www.huxiu.com/rss/0.xml', groupId: null },
+test('TC-ACT-026: Delete Subscription', async ({ request }) => {
+  // 新建一条专门用于删除的订阅，避免影响其他用例
+  const created = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    data: { url: 'https://www.ithome.com/rss/' },
     headers: {
       'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     }
   });
+  expect(created.status()).toBe(200);
+  const subscriptionId = (await created.json()).data.subscription.id;
 
-  if (subscribeResponse.status() !== 200) {
-    console.log('⏸️ TC-ACT-026 SKIPPED: Could not create test feed');
-    test.skip();
-    return;
-  }
+  const response = await request.delete(
+    `${BASE_URL}/feeds/subscriptions/${subscriptionId}`,
+    { headers: { 'Authorization': `Bearer ${authToken}` } }
+  );
 
-  const subscribeBody = await subscribeResponse.json();
-  const feedId = subscribeBody.data.id;
-
-  // Act - Delete the feed
-  const response = await request.delete(`${BASE_URL}/feeds/${feedId}`, {
-    headers: {
-      'Authorization': `Bearer ${authToken}`
-    }
-  });
-
-  // Assert
   expect(response.status()).toBe(200);
-
   const body = await response.json();
   expect(body).toHaveProperty('success', true);
 
-  // Verify feed is deleted from list
-  const listResponse = await request.get(`${BASE_URL}/feeds`, {
-    headers: {
-      'Authorization': `Bearer ${authToken}`
-    }
+  // 确认真的没了
+  const listResponse = await request.get(`${BASE_URL}/feeds/subscriptions`, {
+    headers: { 'Authorization': `Bearer ${authToken}` }
   });
+  const groups = (await listResponse.json()).data.groups;
+  const allSubscriptions = Object.values(groups).flatMap(
+    (g: any) => g.subscriptions
+  ) as any[];
+  expect(allSubscriptions.find((s) => s.id === subscriptionId)).toBeUndefined();
 
-  const listBody = await listResponse.json();
-  const deletedFeed = listBody.data.find((f: any) => f.id === feedId);
-  expect(deletedFeed).toBeUndefined();
-
-  console.log('✅ TC-ACT-026 PASSED: Feed deletion contract validated');
+  console.log('✅ TC-ACT-026 PASSED: Subscription deleted');
 });
 
 /**
- * TC-ACT-027: Delete Feed - Invalid ID
+ * TC-ACT-027: Delete Subscription - Invalid ID
  * Priority: P1
  */
-test('TC-ACT-027: Delete Feed - Invalid ID', async ({ request }) => {
-  // Act
-  const response = await request.delete(`${BASE_URL}/feeds/non-existent-id`, {
-    headers: {
-      'Authorization': `Bearer ${authToken}`
-    }
-  });
+test('TC-ACT-027: Delete Subscription - Invalid ID', async ({ request }) => {
+  const response = await request.delete(
+    `${BASE_URL}/feeds/subscriptions/non-existent-id`,
+    { headers: { 'Authorization': `Bearer ${authToken}` } }
+  );
 
-  // Assert - Should handle gracefully (404 or 200)
-  expect([200, 404]).toContain(response.status());
+  // 删除不存在的订阅：接口返回 404（不是 200 假成功）
+  expect(response.status()).toBe(404);
 
   const body = await response.json();
-  expect(body).toHaveProperty('success');
+  expect(body).toHaveProperty('success', false);
 
-  console.log('✅ TC-ACT-027 PASSED: Invalid feed ID handled correctly');
+  console.log('✅ TC-ACT-027 PASSED: Deleting non-existent subscription returns 404');
 });
 
 /**
@@ -304,12 +284,8 @@ test('TC-ACT-027: Delete Feed - Invalid ID', async ({ request }) => {
  * Priority: P0
  */
 test('TC-ACT-028: Get Feeds - Missing Authorization', async ({ request }) => {
-  // Act - Request without auth header
-  const response = await request.get(`${BASE_URL}/feeds`);
-
-  // Assert - Should return 401
+  const response = await request.get(`${BASE_URL}/feeds/subscriptions`);
   expect(response.status()).toBe(401);
-
   console.log('✅ TC-ACT-028 PASSED: Missing authorization rejected');
 });
 
@@ -318,57 +294,64 @@ test('TC-ACT-028: Get Feeds - Missing Authorization', async ({ request }) => {
  * Priority: P0
  */
 test('TC-ACT-029: Subscribe to Feed - Missing Authorization', async ({ request }) => {
-  // Act - Request without auth header
-  const response = await request.post(`${BASE_URL}/feeds`, {
-    data: { url: 'https://example.com/feed' },
-    headers: {
-      'Content-Type': 'application/json'
-    }
+  const response = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    data: { url: 'https://sspai.com/feed' },
+    headers: { 'Content-Type': 'application/json' }
   });
 
-  // Assert - Should return 401
   expect(response.status()).toBe(401);
-
   console.log('✅ TC-ACT-029 PASSED: Missing authorization rejected');
 });
 
 /**
- * TC-ACT-030: Feed Schema Validation - All Fields
+ * TC-ACT-030: Duplicate Subscription Handled Gracefully
  * Priority: P1
  */
-test('TC-ACT-030: Feed Schema Validation - All Fields', async ({ request }) => {
-  // Arrange - Create a feed
-  const subscribeResponse = await request.post(`${BASE_URL}/feeds`, {
-    data: { url: 'https://36kr.com/feed', groupId: null },
+test('TC-ACT-030: Duplicate Subscription Handled Gracefully', async ({ request }) => {
+  const payload = { url: 'https://sspai.com/feed' };
+  const headers = {
+    'Authorization': `Bearer ${authToken}`,
+    'Content-Type': 'application/json'
+  };
+
+  // beforeAll 里已经订阅过 sspai，这次是重复订阅
+  const response = await request.post(`${BASE_URL}/feeds/subscriptions`, {
+    data: payload,
+    headers
+  });
+
+  // 重复订阅返回 200 + 说明，而不是撞唯一约束报 500。
+  // 用户在市场页手快点两下就会走到这条路径。
+  expect(response.status()).toBe(200);
+
+  const body = await response.json();
+  expect(body).toHaveProperty('success', true);
+  expect(body.message).toContain('已经订阅过');
+
+  console.log('✅ TC-ACT-030 PASSED: Duplicate subscription handled gracefully');
+});
+
+/**
+ * TC-ACT-031: Validate Feed URL
+ * Priority: P1
+ */
+test('TC-ACT-031: Validate Feed URL', async ({ request }) => {
+  const response = await request.post(`${BASE_URL}/feeds/validate`, {
+    data: { url: 'https://sspai.com/feed' },
     headers: {
       'Authorization': `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     }
   });
 
-  if (subscribeResponse.status() !== 200) {
-    console.log('⏸️ TC-ACT-030 SKIPPED: Could not create test feed');
-    test.skip();
-    return;
-  }
+  expect(response.status()).toBe(200);
 
-  const feed = (await subscribeResponse.json()).data;
+  const body = await response.json();
+  expect(body).toHaveProperty('success', true);
+  expect(body.data).toHaveProperty('valid', true);
+  expect(body.data.feed).toHaveProperty('title');
+  expect(body.data.feed).toHaveProperty('itemCount');
+  expect(typeof body.data.feed.itemCount).toBe('number');
 
-  // Act - Get the feed details
-  const response = await request.get(`${BASE_URL}/feeds`, {
-    headers: {
-      'Authorization': `Bearer ${authToken}`
-    }
-  });
-
-  // Assert - Validate complete schema
-  const validationResult = validate(feed, feedSchema);
-  expect(validationResult.valid, validationResult.errors?.map(e => e.message).join(', ')).toBe(true);
-
-  // Verify all required fields are present
-  expect(feed.id).toBeDefined();
-  expect(feed.title).toBeDefined();
-  expect(feed.url).toBeDefined();
-
-  console.log('✅ TC-ACT-030 PASSED: Complete feed schema validated');
+  console.log('✅ TC-ACT-031 PASSED: Feed validation contract validated');
 });

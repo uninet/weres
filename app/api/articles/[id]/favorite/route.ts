@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUserFromRequest } from "@/lib/auth";
 
 // 这些接口的返回内容依赖当前登录用户与数据库实时状态，
 // 绝不能被 Next 在构建期预渲染成静态文件（会泄漏构建机的数据快照，
@@ -13,7 +13,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserFromRequest(req);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "未登录" },
@@ -29,6 +29,30 @@ export async function POST(
     });
 
     if (!article) {
+      return NextResponse.json(
+        { success: false, message: "文章不存在" },
+        { status: 404 }
+      );
+    }
+
+    // 归属校验：只能对「自己订阅的源」里的文章做收藏操作。
+    //
+    // 不加这一步时，任何人拿到一个 articleId 就能收藏别人的文章，
+    // 再通过 GET /api/favorites 看到它的标题、链接、作者、摘要 ——
+    // 收藏夹从这个角度看是一个越权读文章的旁路。
+    // 与 read 路由保持同一判据：未订阅一律 404（不是 403），
+    // 避免用状态码差异枚举出「这个 id 是否存在」。
+    const subscription = await prisma.subscription.findUnique({
+      where: {
+        userId_feedId: {
+          userId: user.id,
+          feedId: article.feedId,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!subscription) {
       return NextResponse.json(
         { success: false, message: "文章不存在" },
         { status: 404 }
@@ -74,7 +98,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserFromRequest(req);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "未登录" },
@@ -115,7 +139,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserFromRequest(req);
     if (!user) {
       return NextResponse.json(
         { success: false, message: "未登录" },

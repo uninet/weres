@@ -1,48 +1,40 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Article Schema",
-  "description": "Schema for RSS article objects",
+  "description": "RSS 文章在列表接口里的形状（app/api/articles/route.ts 的 select 结果）",
   "type": "object",
-  "required": ["id", "title", "link", "pubDate", "isRead", "isStarred"],
+  "required": ["id", "title", "link", "pubDate", "isRead", "isFavorited"],
   "properties": {
-    "id": {
-      "type": "string",
-      "description": "Unique article identifier"
-    },
+    "id": { "type": "string", "description": "文章唯一标识" },
     "title": {
       "type": "string",
       "minLength": 1,
       "maxLength": 500,
-      "description": "Article title"
+      "description": "文章标题"
     },
-    "description": {
-      "type": "string",
-      "description": "Article summary or excerpt"
-    },
-    "link": {
-      "type": "string",
-      "format": "uri",
-      "description": "Original article URL"
-    },
-    "pubDate": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Publication date and time"
-    },
-    "isRead": {
+    "description": { "type": "string", "description": "列表用摘要（纯文本，已净化）" },
+    "link": { "type": "string", "format": "uri", "description": "原文地址" },
+    "pubDate": { "type": "string", "format": "date-time", "description": "发布时间" },
+    "isRead": { "type": "boolean", "description": "当前用户是否已读" },
+    "isFavorited": {
       "type": "boolean",
-      "description": "Whether the article has been read"
+      "description": "当前用户是否收藏。字段名是 isFavorited，不是 isStarred —— 早期契约表写的是 isStarred，与实际不符"
     },
-    "isStarred": {
-      "type": "boolean",
-      "description": "Whether the article is favorited"
+    "favoriteCount": { "type": "integer", "minimum": 0, "description": "全局收藏数" },
+    "imageUrl": {
+      "type": ["string", "null"],
+      "description": "缩略图地址；全量抓取后从正文首图兜底提取"
     },
+    "author": { "type": ["string", "null"], "description": "作者" },
     "feed": {
-      "$ref": "feed.schema.json"
-    },
-    "content": {
-      "type": "string",
-      "description": "Full article content (HTML format)"
+      "type": "object",
+      "description": "所属源的精简信息",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "icon": { "type": ["string", "null"] }
+      },
+      "required": ["id", "title"]
     }
   },
   "additionalProperties": false
